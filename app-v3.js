@@ -115,7 +115,13 @@
       };
       writeStore(data);
     }
-    return data.daily[key];
+    var plan = data.daily[key];
+    if (!plan.activeStage || stages.indexOf(plan.activeStage) < 0) {
+      plan.activeStage = stages.indexOf(plan.stage) >= 0 ? plan.stage : 'words';
+      plan.stage = plan.activeStage;
+      writeStore(data);
+    }
+    return plan;
   }
   function savePlan(plan) {
     var data = readStore(); data.daily[planKey()] = plan; writeStore(data);
@@ -126,25 +132,32 @@
   }
   function setDailyState() {
     var plan = getPlan();
-    state.scene = plan.scene; state.module = plan.stage; state.wordsDone = plan.wordPos;
+    state.scene = plan.scene; state.module = plan.activeStage; state.wordsDone = plan.wordPos;
     state.word = plan.wordOrder[Math.min(plan.wordPos, plan.wordOrder.length - 1)] || 0;
-    state.pattern = plan.patternStep; state.groupDone = false; state.revealed = false;
+    state.pattern = plan.patternStep; state.groupDone = false;
     return plan;
   }
 
+  function chooseStage(stage, shouldScroll) {
+    var plan = getPlan(); plan.activeStage = stage; plan.stage = stage; savePlan(plan);
+    state.revealed = false; setDailyState(); renderDaily();
+    if (shouldScroll) document.querySelector('#practice').scrollIntoView({ behavior: 'smooth' });
+  }
+
   function renderRoadmap(plan) {
-    var current = stages.indexOf(plan.stage);
     document.querySelector('#moduleCards').className = 'daily-roadmap';
     document.querySelector('#moduleCards').innerHTML = stages.map(function (item, index) {
-      var status = plan.completed.indexOf(item) >= 0 ? 'done' : (item === plan.stage ? 'current' : '');
+      var status = plan.completed.indexOf(item) >= 0 ? 'done' : (item === plan.activeStage ? 'current' : '');
       var notes = ['5 个当日词汇', '2 次主动造句', '1 次主题输出', '60 秒表达'];
-      return '<div class="daily-step ' + status + '"><small>0' + (index + 1) + ' · ' + (index < current ? 'DONE' : index === current ? 'NOW' : 'NEXT') + '</small><strong>' + stageLabels[item] + '</strong><span>' + notes[index] + '</span></div>';
+      var label = status === 'done' ? 'DONE' : status === 'current' ? 'OPEN' : 'CHOOSE';
+      return '<button class="daily-step ' + status + '" data-choose-stage="' + item + '"><small>0' + (index + 1) + ' · ' + label + '</small><strong>' + stageLabels[item] + '</strong><span>' + notes[index] + '</span></button>';
     }).join('');
     document.querySelector('#practiceNav').innerHTML = stages.map(function (item) {
-      var status = plan.completed.indexOf(item) >= 0 ? 'done' : (item === plan.stage ? 'current' : '');
-      return '<div class="daily-nav-item ' + status + '">' + stageLabels[item] + '</div>';
+      var status = plan.completed.indexOf(item) >= 0 ? 'done' : (item === plan.activeStage ? 'current' : '');
+      return '<button class="daily-nav-item ' + status + '" data-choose-stage="' + item + '">' + stageLabels[item] + '</button>';
     }).join('');
-    document.querySelector('#practiceTitle').textContent = plan.stage === 'complete' ? '今日完成' : stageLabels[plan.stage];
+    document.querySelectorAll('[data-choose-stage]').forEach(function (button) { button.onclick = function () { chooseStage(button.dataset.chooseStage, button.closest('#moduleCards') !== null); }; });
+    document.querySelector('#practiceTitle').textContent = stageLabels[plan.activeStage];
     document.querySelector('.section-title h2').textContent = '今日主题：' + SCENES[plan.scene];
     document.querySelector('#levelLabel').innerHTML = DATA[state.language].level + '<br><span class="scene-caption">今日随机主题：' + SCENES[plan.scene] + '</span>';
   }
@@ -163,9 +176,9 @@
     data.sessions.unshift({ id: Date.now(), date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, targetMinutes: MODES[state.mode][0], durationSeconds: seconds, duration: seconds / 60, note: note || '', score: score == null ? null : score });
     writeStore(data); toast(activeAccount ? '已保存，正在同步' : '已保存到访客设备'); updateStats();
   };
-  function finishStage(plan, stage, next) {
+  function finishStage(plan, stage) {
     if (plan.completed.indexOf(stage) < 0) plan.completed.push(stage);
-    plan.stage = next; savePlan(plan); setDailyState(); renderDaily(); updateStats();
+    plan.activeStage = stage; plan.stage = stage; savePlan(plan); setDailyState(); renderDaily(); updateStats();
   }
   function addReviewAndAdvance(word, rating) {
     var data = readStore(); var now = Date.now(); var days = rating === 'easy' ? 7 : rating === 'hard' ? 1 : 0;
@@ -174,7 +187,8 @@
     var found = data.reviews.find(function (x) { return x.key === key; }); if (found) Object.assign(found, item); else data.reviews.push(item);
     writeStore(data);
     var plan = getPlan(); plan.wordPos += 1;
-    if (plan.wordPos >= plan.wordOrder.length) { saveSessionOnce('words', SCENES[plan.scene] + ' · 完成 5 个当日单词', null); finishStage(plan, 'words', 'patterns'); }
+    state.revealed = false;
+    if (plan.wordPos >= plan.wordOrder.length) { saveSessionOnce('words', SCENES[plan.scene] + ' · 完成 5 个当日单词', null); finishStage(plan, 'words'); }
     else { savePlan(plan); setDailyState(); renderDaily(); updateStats(); }
   }
 
@@ -216,7 +230,8 @@
     root.querySelector('#scorePattern').onclick = function () {
       var score = showVocabularyScore(root, input.value, required, 9); if (!input.value.trim()) return;
       saveSession('patterns', '当日词汇造句：' + input.value, score); plan.patternStep = round + 1;
-      if (plan.patternStep >= 2) finishStage(plan, 'patterns', 'reading'); else { savePlan(plan); setDailyState(); renderDaily(); }
+      state.revealed = false;
+      if (plan.patternStep >= 2) finishStage(plan, 'patterns'); else { savePlan(plan); setDailyState(); renderDaily(); }
     };
   }
   function renderReading(root, plan, words) {
@@ -224,26 +239,28 @@
     root.innerHTML = '<article class="practice-card reading"><section class="article"><span class="eyebrow">' + SCENES[plan.scene] + ' · SHORT READING</span><h3>' + item[0] + '</h3><p>' + item[1] + '</p><button class="reveal" id="translate">查看中文</button><div id="translation" class="translation hidden">' + item[2] + '</div></section><section class="writing"><span class="eyebrow" style="color:var(--muted)">YOUR OUTPUT</span><h4>' + item[3] + '</h4><p class="hint">尝试再次使用：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea id="draft" placeholder="在这里写下你的回答……"></textarea><div class="action-row"><small id="count">0 字符</small><button class="btn primary" id="scoreWriting">评分并进入口语</button></div><div class="score-result hidden"></div></section></article>';
     var input = root.querySelector('#draft'); input.oninput = function () { root.querySelector('#count').textContent = input.value.length + ' 字符'; };
     root.querySelector('#translate').onclick = function () { root.querySelector('#translation').classList.toggle('hidden'); };
-    root.querySelector('#scoreWriting').onclick = function () { var score = showVocabularyScore(root, input.value, required, 30); if (!input.value.trim()) return; saveSessionOnce('reading', input.value, score); finishStage(plan, 'reading', 'speaking'); };
+    root.querySelector('#scoreWriting').onclick = function () { var score = showVocabularyScore(root, input.value, required, 30); if (!input.value.trim()) return; saveSessionOnce('reading', input.value, score); finishStage(plan, 'reading'); };
   }
   function renderSpeaking(root, plan, words) {
     var item = SCENE_CONTENT[state.language][plan.scene].speaking; var required = [words[0], words[4]];
     root.innerHTML = '<article class="practice-card speaking"><section class="speaking-body"><span class="eyebrow" style="color:var(--muted)">' + SCENES[plan.scene] + ' · 60-SECOND SPEAKING</span><h3>' + item[0] + '</h3><ul>' + item[1].map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul><p class="hint">尽量说出今天的词：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea class="response-box" id="speechText" placeholder="可输入或使用语音转写……"></textarea><div class="action-row"><button class="btn" id="dictate">🎙 语音转写</button><button class="btn primary" id="scoreSpeaking">完成今日任务</button><span class="mic-status" id="micStatus"></span></div><div class="score-result hidden"></div></section><aside class="timer ' + (state.timerId ? 'running' : '') + '"><strong id="timerValue">' + state.timer + '</strong><small>秒</small><div class="timer-controls"><button id="timerToggle">' + (state.timerId ? 'Ⅱ' : '▶') + '</button><button id="timerReset">↺</button></div></aside></article>';
     var input = root.querySelector('#speechText'); root.querySelector('#timerToggle').onclick = toggleTimer; root.querySelector('#timerReset').onclick = resetTimer; root.querySelector('#dictate').onclick = function () { startDictation(root); };
-    root.querySelector('#scoreSpeaking').onclick = function () { var score = showVocabularyScore(root, input.value, required, 22); if (!input.value.trim()) return; saveSessionOnce('speaking', input.value, score); finishStage(plan, 'speaking', 'complete'); toast('今日学习路线已完成'); };
+    root.querySelector('#scoreSpeaking').onclick = function () { var score = showVocabularyScore(root, input.value, required, 22); if (!input.value.trim()) return; saveSessionOnce('speaking', input.value, score); finishStage(plan, 'speaking'); if (plan.completed.length === stages.length) toast('今天四项练习已全部完成'); };
   }
-  function renderComplete(root, plan, words) {
-    root.innerHTML = '<article class="practice-card"><div class="daily-complete"><span class="finish-mark">✓</span><h3>今天的路线完成了</h3><p>你已经从回忆走到输出，并在句型、读写和口语中重复调用了 <strong>' + words.map(function (w) { return w[0]; }).join('、') + '</strong>。明天会根据日期和账号生成另一套任务。</p><button class="btn primary" id="openHistory">查看今日记录</button></div></article>';
+  function renderModuleComplete(root, plan) {
+    var remaining = stages.filter(function (item) { return plan.completed.indexOf(item) < 0; });
+    root.innerHTML = '<article class="practice-card"><div class="daily-complete"><span class="finish-mark">✓</span><h3>' + stageLabels[plan.activeStage] + '已完成</h3><p>' + (remaining.length ? '你可以自由选择其他练习，不需要按固定顺序进行。' : '今天四项练习已全部完成，明天会生成新的主题内容。') + '</p><div class="action-row">' + remaining.map(function (item) { return '<button class="btn" data-next-choice="' + item + '">' + stageLabels[item] + '</button>'; }).join('') + '<button class="btn primary" id="openHistory">查看记录</button></div></div></article>';
     root.querySelector('#openHistory').onclick = function () { showPanel('history'); };
+    root.querySelectorAll('[data-next-choice]').forEach(function (button) { button.onclick = function () { chooseStage(button.dataset.nextChoice, false); }; });
   }
   function renderDaily() {
     var plan = setDailyState(); var root = document.querySelector('#practiceContent'); var words = todayWords(plan);
     renderRoadmap(plan);
-    if (plan.stage === 'words') renderWords(root, plan, words);
-    else if (plan.stage === 'patterns') renderPatterns(root, plan, words);
-    else if (plan.stage === 'reading') renderReading(root, plan, words);
-    else if (plan.stage === 'speaking') renderSpeaking(root, plan, words);
-    else renderComplete(root, plan, words);
+    if (plan.completed.indexOf(plan.activeStage) >= 0) renderModuleComplete(root, plan);
+    else if (plan.activeStage === 'words') renderWords(root, plan, words);
+    else if (plan.activeStage === 'patterns') renderPatterns(root, plan, words);
+    else if (plan.activeStage === 'reading') renderReading(root, plan, words);
+    else renderSpeaking(root, plan, words);
   }
 
   function setSyncText(text, error) {
@@ -304,7 +321,7 @@
   var backToModules = document.querySelector('#backToModules'); if (backToModules) backToModules.remove();
   document.querySelector('.section-title span').textContent = "TODAY'S TOPIC";
   document.querySelector('.section-title h2').textContent = '正在生成今日主题…';
-  document.querySelector('.section-title p').textContent = '主题每天随机更新，四项练习顺序固定。';
+  document.querySelector('.section-title p').textContent = '主题每天随机更新，四项练习可自由选择。';
   document.querySelector('.privacy').textContent = '登录后进度会保存到个人账号并跨设备同步；访客模式只保存在当前设备。旅行、工作、学习等主题每天随机更新，资料库内容随网站版本扩充。';
   document.querySelector('#language').onchange = function (event) { state.language = event.target.value; localStorage.setItem('yg-language', state.language); resetTimer(); syncHeader(); renderDaily(); updateStats(); };
 

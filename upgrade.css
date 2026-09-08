@@ -1,13 +1,14 @@
 .account-btn{height:42px;border:1px solid var(--line);border-radius:13px;background:#fff;padding:0 14px;cursor:pointer;font-weight:750;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .account-btn.online{background:var(--lime);border-color:#b6d83c}
 .daily-roadmap{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-.daily-step{min-height:132px;padding:18px;border:1px solid var(--line);border-radius:20px;background:#fff;display:grid;align-content:space-between;gap:16px;position:relative}
+.daily-step{min-height:132px;padding:18px;border:1px solid var(--line);border-radius:20px;background:#fff;display:grid;align-content:space-between;gap:16px;position:relative;text-align:left;cursor:pointer;font:inherit;color:inherit;transition:.18s}
+.daily-step:hover{transform:translateY(-3px);border-color:var(--ink);box-shadow:var(--shadow)}
 .daily-step small{font:650 11px ui-monospace,monospace;color:var(--muted)}
 .daily-step strong{font-size:19px}.daily-step span{font-size:13px;color:var(--muted)}
 .daily-step.current{border-color:var(--ink);box-shadow:var(--shadow)}
 .daily-step.current:before{content:"进行中";position:absolute;right:12px;top:12px;padding:4px 7px;border-radius:8px;background:var(--lime);font-size:11px;font-weight:800}
 .daily-step.done{background:#edf1e9;color:#78827d}.daily-step.done:before{content:"✓";position:absolute;right:16px;top:13px;font-weight:900;color:#53721a}
-.practice-nav .daily-nav-item{height:52px;border-bottom:1px solid var(--line);padding:0 11px;display:flex;align-items:center;color:var(--muted)}
+.practice-nav .daily-nav-item{height:52px;border:0;border-bottom:1px solid var(--line);background:transparent;padding:0 11px;display:flex;align-items:center;color:var(--muted);cursor:pointer;text-align:left}
 .practice-nav .daily-nav-item.current{background:#fff;color:var(--ink);font-weight:800}.practice-nav .daily-nav-item.done:after{content:"✓";margin-left:auto;color:#668900}
 .vocab-chips{display:flex;flex-wrap:wrap;gap:8px;margin:18px 0}.vocab-chip{padding:7px 10px;border-radius:10px;background:#eef0ff;color:#4050aa;font-weight:800}.vocab-chip.used{background:#e8f6be;color:#4e6614}
 .account-overlay{position:fixed;inset:0;z-index:80;background:#101d28aa;display:grid;place-items:center;padding:18px;backdrop-filter:blur(8px)}
