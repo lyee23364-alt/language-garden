@@ -3,7 +3,7 @@
  * 请勿在这里填写 service_role key 或其他服务器密钥。
  */
 window.YG_SUPABASE = {
-  url: "",
-  publishableKey: ""
+  url: "https://miegxhcztbaastmieqrq.supabase.co",
+  publishableKey: "sb_publishable_Mj_zjBhU3QlV-NJnmxIMWA_bRqUt1eu"
 };
 
