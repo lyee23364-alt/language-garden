@@ -27,6 +27,29 @@
     reading: ['Neue Wörter aktiv lernen','Ein neues Wort nur zu lesen reicht oft nicht. Ich spreche es laut, schreibe einen eigenen Satz und wiederhole es am nächsten Tag. So verstehe ich das Wort besser und kann es später aktiv benutzen.','只阅读一个新单词通常不够。我会把它大声读出来、写一个自己的句子，并在第二天复习。这样我能更好地理解它，以后也能主动使用。','写 5–7 句德语，介绍你记忆新单词的方法，并使用两个当日词汇。'],
     speaking: ['So lerne ich eine Sprache',['Was lernst du gerade?','Was ist schwierig?','Wie übst du und siehst deinen Fortschritt?'],'Zurzeit lerne ich ... Für mich ist ... schwierig.']
   };
+  var WORD_EXPANSIONS = {
+    english: {
+      daily: [['organize','/ˈɔːɡənaɪz/','整理；安排','I organize tomorrow before I go to bed.'],['rely','/rɪˈlaɪ/','依靠；信赖','I rely on a simple checklist every morning.'],['unwind','/ˌʌnˈwaɪnd/','放松','Music helps me unwind after a long day.']],
+      travel: [['accommodation','/əˌkɒməˈdeɪʃn/','住宿','Our accommodation is close to the station.'],['landmark','/ˈlændmɑːk/','地标','The tower is the city\'s best-known landmark.'],['flexible','/ˈfleksəbəl/','灵活的','We kept our travel plans flexible.']],
+      social: [['approachable','/əˈprəʊtʃəbəl/','平易近人的','Her smile makes her seem approachable.'],['considerate','/kənˈsɪdərət/','体贴的','It was considerate of him to call first.'],['reconnect','/ˌriːkəˈnekt/','重新联系','I hope to reconnect with an old friend.']],
+      ideas: [['insight','/ˈɪnsaɪt/','见解；洞察','The discussion gave me a new insight.'],['debate','/dɪˈbeɪt/','讨论；辩论','We had a friendly debate about the film.'],['appreciate','/əˈpriːʃieɪt/','欣赏；理解','I appreciate stories with complex characters.']],
+      work: [['prioritize','/praɪˈɒrətaɪz/','确定优先顺序','I prioritize the most urgent task first.'],['clarify','/ˈklærəfaɪ/','澄清','Could you clarify the final requirement?'],['deadline','/ˈdedlaɪn/','截止日期','The deadline is Friday afternoon.']],
+      study: [['recall','/rɪˈkɔːl/','回忆；记起','I can recall the word after using it twice.'],['concentrate','/ˈkɒnsntreɪt/','集中注意力','I concentrate better with my phone away.'],['improve','/ɪmˈpruːv/','提高；改善','Short daily practice can improve my speaking.']]
+    },
+    german: {
+      daily: [['erledigen','[ɛɐ̯ˈleːdɪɡn̩]','完成；处理','Ich erledige kleine Aufgaben am Morgen.'],['bequem','[bəˈkveːm]','舒适的；方便的','Der Sessel ist sehr bequem.'],['sich erholen','[zɪç ɛɐ̯ˈhoːlən]','休息；恢复','Am Wochenende erhole ich mich zu Hause.']],
+      travel: [['die Unterkunft','[ˈʊntɐˌkʊnft]','住宿','Unsere Unterkunft liegt im Stadtzentrum.'],['die Sehenswürdigkeit','[ˈzeːənsˌvʏʁdɪçkaɪ̯t]','景点','Diese Sehenswürdigkeit öffnet um neun Uhr.'],['flexibel','[flɛksiˈbəl]','灵活的','Auf Reisen bleibe ich gern flexibel.']],
+      social: [['aufmerksam','[ˈaʊ̯fˌmɛʁkzaːm]','专注的；体贴的','Sie hört aufmerksam zu.'],['offen','[ˈɔfn̩]','开放的；坦率的','Er ist offen und spricht gern mit neuen Leuten.'],['sich verabreden','[zɪç fɛɐ̯ˈʔaːpʁeːdn̩]','约见','Wir verabreden uns für Samstag.']],
+      ideas: [['spannend','[ˈʃpanənt]','有趣的；精彩的','Ich finde das Thema sehr spannend.'],['diskutieren','[dɪskuˈtiːʁən]','讨论','Wir diskutieren über den neuen Film.'],['schätzen','[ˈʃɛtsn̩]','欣赏；珍惜','Ich schätze ihre ehrliche Meinung.']],
+      work: [['priorisieren','[pʁioʁiˈziːʁən]','确定优先顺序','Ich priorisiere heute drei wichtige Aufgaben.'],['erklären','[ɛɐ̯ˈklɛːʁən]','解释','Können Sie den nächsten Schritt erklären?'],['die Frist','[fʁɪst]','期限','Die Frist endet am Freitag.']],
+      study: [['sich erinnern','[zɪç ɛɐ̯ˈʔɪnɐn]','想起；记得','Ich kann mich gut an das Beispiel erinnern.'],['sich konzentrieren','[zɪç kɔntsɛnˈtʁiːʁən]','集中注意力','Ich konzentriere mich besser ohne Handy.'],['verbessern','[fɛɐ̯ˈbɛsɐn]','改善；提高','Ich möchte meine Aussprache verbessern.']]
+    }
+  };
+  Object.keys(WORD_EXPANSIONS).forEach(function (language) {
+    Object.keys(WORD_EXPANSIONS[language]).forEach(function (scene) {
+      SCENE_CONTENT[language][scene].words = SCENE_CONTENT[language][scene].words.concat(WORD_EXPANSIONS[language][scene]);
+    });
+  });
   var activeSeconds = { words: 0, listening: 0, patterns: 0, reading: 0, speaking: 0 };
   var lastInteractionAt = Date.now();
   if (!state.timerId) state.timer = modeConfig().speakingSeconds;
@@ -118,7 +141,7 @@
       var deck = SCENE_CONTENT[state.language][selectedScene].words;
       data.daily[key] = {
         date: localDateKey(), language: state.language, scene: selectedScene, topicVersion: topicVersion,
-        wordOrder: shuffledIndexes(deck.length, random).slice(0, 5), wordPos: 0,
+        wordOrder: shuffledIndexes(deck.length, random), wordPos: 0, wordExtensionTarget: 0,
         stage: 'words', listeningPos: 0, patternStep: 0, completed: []
       };
       writeStore(data);
@@ -131,6 +154,16 @@
     }
     if (!Number.isFinite(plan.listeningPos)) { plan.listeningPos = 0; writeStore(data); }
     if (!Array.isArray(plan.listeningScores)) { plan.listeningScores = []; writeStore(data); }
+    if (!Array.isArray(plan.wordOrder)) plan.wordOrder = [];
+    var currentDeck = SCENE_CONTENT[state.language][plan.scene].words;
+    if (plan.wordOrder.length < currentDeck.length) {
+      var existing = new Set(plan.wordOrder);
+      shuffledIndexes(currentDeck.length, rng(hash(key + ':' + userKey() + ':extra-words'))).forEach(function (index) {
+        if (!existing.has(index)) { plan.wordOrder.push(index); existing.add(index); }
+      });
+      writeStore(data);
+    }
+    if (!Number.isFinite(plan.wordExtensionTarget)) { plan.wordExtensionTarget = 0; writeStore(data); }
     return plan;
   }
   function savePlan(plan) {
@@ -139,6 +172,9 @@
   function todayWords(plan) {
     var deck = SCENE_CONTENT[state.language][plan.scene].words;
     return plan.wordOrder.map(function (i) { return deck[i]; });
+  }
+  function dailyWordGoal(plan) {
+    return Math.min(plan.wordOrder.length, Math.max(modeConfig().words, Number(plan.wordExtensionTarget) || 0));
   }
   function setDailyState() {
     var plan = getPlan();
@@ -199,7 +235,7 @@
     writeStore(data);
     var plan = getPlan(); plan.wordPos += 1;
     state.revealed = false;
-    var wordGoal = Math.min(modeConfig().words, plan.wordOrder.length);
+    var wordGoal = dailyWordGoal(plan);
     if (plan.wordPos >= wordGoal) { saveSessionOnce('words', SCENES[plan.scene] + ' · 完成 ' + wordGoal + ' 个当日单词', null); finishStage(plan, 'words'); }
     else { savePlan(plan); setDailyState(); renderDaily(); updateStats(); }
   }
@@ -228,7 +264,7 @@
   }
 
   function renderWords(root, plan, words) {
-    var goal = Math.min(modeConfig().words, words.length);
+    var goal = dailyWordGoal(plan);
     if (plan.wordPos >= goal) { finishStage(plan, 'words'); return; }
     var w = words[plan.wordPos];
     root.innerHTML = '<article class="practice-card"><div class="card-top"><span>今日单词 ' + (plan.wordPos + 1) + ' / ' + goal + '</span><span>' + SCENES[plan.scene] + ' · ' + DATA[state.language].label + '</span></div><div class="center"><button class="sound" aria-label="朗读单词">▶</button><h3 class="big-word">' + w[0] + '</h3><p class="phonetic">' + w[1] + '</p><button class="reveal">' + (state.revealed ? '隐藏释义' : '先回忆，再看答案') + '</button>' + (state.revealed ? '<div class="answer"><strong>' + w[2] + '</strong><p>' + w[3] + '</p></div>' : '') + '</div><div class="rating"><span>这次想起来了吗？</span><div><button class="btn" data-daily-rate="again">再来</button><button class="btn" data-daily-rate="hard">有点难</button><button class="btn primary" data-daily-rate="easy">记住了</button></div></div></article>';
@@ -309,9 +345,19 @@
   }
   function renderModuleComplete(root, plan) {
     var remaining = stages.filter(function (item) { return plan.completed.indexOf(item) < 0; });
-    root.innerHTML = '<article class="practice-card"><div class="daily-complete"><span class="finish-mark">✓</span><h3>' + stageLabels[plan.activeStage] + '已完成</h3><p>' + (remaining.length ? '你可以自由选择其他练习，不需要按固定顺序进行。' : '今天五项练习已全部完成，明天会生成新的主题内容。') + '</p><div class="action-row">' + remaining.map(function (item) { return '<button class="btn" data-next-choice="' + item + '">' + stageLabels[item] + '</button>'; }).join('') + '<button class="btn primary" id="openHistory">查看记录</button></div></div></article>';
+    var wordsLeft = plan.activeStage === 'words' ? Math.max(0, plan.wordOrder.length - plan.wordPos) : 0;
+    var moreWords = wordsLeft ? '<div class="continue-words"><p>今天状态不错？本主题还有 ' + wordsLeft + ' 个单词，可以自由加学。</p><div class="action-row"><button class="btn" data-more-words="1">再学 1 个</button><button class="btn primary" data-more-words="3">再学 3 个</button></div></div>' : (plan.activeStage === 'words' ? '<p class="deck-finished">本主题的 ' + plan.wordOrder.length + ' 个单词今天已全部完成。</p>' : '');
+    root.innerHTML = '<article class="practice-card"><div class="daily-complete"><span class="finish-mark">✓</span><h3>' + stageLabels[plan.activeStage] + '已完成</h3><p>' + (remaining.length ? '你可以自由选择其他练习，不需要按固定顺序进行。' : '今天五项练习已全部完成，明天会生成新的主题内容。') + '</p>' + moreWords + '<div class="action-row">' + remaining.map(function (item) { return '<button class="btn" data-next-choice="' + item + '">' + stageLabels[item] + '</button>'; }).join('') + '<button class="btn primary" id="openHistory">查看记录</button></div></div></article>';
     root.querySelector('#openHistory').onclick = function () { showPanel('history'); };
     root.querySelectorAll('[data-next-choice]').forEach(function (button) { button.onclick = function () { chooseStage(button.dataset.nextChoice, false); }; });
+    root.querySelectorAll('[data-more-words]').forEach(function (button) {
+      button.onclick = function () {
+        var count = Number(button.dataset.moreWords) || 1;
+        plan.wordExtensionTarget = Math.min(plan.wordOrder.length, plan.wordPos + count);
+        plan.completed = plan.completed.filter(function (item) { return item !== 'words'; });
+        plan.activeStage = 'words'; plan.stage = 'words'; savePlan(plan); setDailyState(); renderDaily();
+      };
+    });
   }
   function renderDaily() {
     var plan = setDailyState(); var root = document.querySelector('#practiceContent'); var words = todayWords(plan);
@@ -425,6 +471,14 @@
     toast(days ? '已安排 ' + days + ' 天后复习' : '已保留在今日复习');
     updateStats();
   }
+  function speakReviewWord(item) {
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) { toast('当前浏览器不支持朗读'); return; }
+    window.speechSynthesis.cancel();
+    var utterance = new SpeechSynthesisUtterance(item.prompt);
+    utterance.lang = DATA[item.language] ? DATA[item.language].locale : DATA[state.language].locale;
+    utterance.rate = .86;
+    window.speechSynthesis.speak(utterance);
+  }
   updateStats = function () {
     var data = readStore(); var sessions = data.sessions;
     var reviews = data.reviews.slice().sort(function (a, b) { return Number(a.due) - Number(b.due); });
@@ -442,7 +496,7 @@
     document.querySelector('#reviewList').innerHTML = reviews.length ? reviews.map(function (item) {
       var encodedKey = encodeURIComponent(item.key);
       var status = reviewTimingLabel(item.due);
-      return '<article class="review-item ' + (item.due <= Date.now() ? 'is-due' : 'is-upcoming') + '" data-review-card="' + encodedKey + '"><div class="review-copy"><strong>' + escapeHtml(item.prompt) + '</strong><span class="review-schedule">' + escapeHtml(DATA[item.language] ? DATA[item.language].label : '') + ' · ' + status + '</span><small class="review-answer hidden">' + escapeHtml(item.answer) + '</small></div><div class="review-actions"><button class="btn" data-review-reveal>查看答案</button><div class="review-rating hidden"><button class="btn" data-review-rate="again" data-review-key="' + encodedKey + '">再来</button><button class="btn" data-review-rate="hard" data-review-key="' + encodedKey + '">有点难</button><button class="btn primary" data-review-rate="easy" data-review-key="' + encodedKey + '">记住了</button></div></div></article>';
+      return '<article class="review-item ' + (item.due <= Date.now() ? 'is-due' : 'is-upcoming') + '" data-review-card="' + encodedKey + '"><div class="review-copy"><strong>' + escapeHtml(item.prompt) + '</strong><span class="review-schedule">' + escapeHtml(DATA[item.language] ? DATA[item.language].label : '') + ' · ' + status + '</span><small class="review-answer hidden">' + escapeHtml(item.answer) + '</small></div><div class="review-actions"><div class="review-main-actions"><button class="btn review-audio" data-review-speak="' + encodedKey + '">🔊 发音</button><button class="btn" data-review-reveal>查看答案</button></div><div class="review-rating hidden"><button class="btn" data-review-rate="again" data-review-key="' + encodedKey + '">再来</button><button class="btn" data-review-rate="hard" data-review-key="' + encodedKey + '">有点难</button><button class="btn primary" data-review-rate="easy" data-review-key="' + encodedKey + '">记住了</button></div></div></article>';
     }).join('') : '<div class="empty">暂无复习内容。完成单词练习后，单词会立即出现在这里。</div>';
     document.querySelectorAll('[data-review-reveal]').forEach(function (button) {
       button.onclick = function () {
@@ -456,6 +510,13 @@
     });
     document.querySelectorAll('[data-review-rate]').forEach(function (button) {
       button.onclick = function () { rescheduleReview(decodeURIComponent(button.dataset.reviewKey), button.dataset.reviewRate); };
+    });
+    document.querySelectorAll('[data-review-speak]').forEach(function (button) {
+      button.onclick = function () {
+        var key = decodeURIComponent(button.dataset.reviewSpeak);
+        var item = readStore().reviews.find(function (entry) { return entry.key === key; });
+        if (item) speakReviewWord(item);
+      };
     });
     document.querySelector('#historyList').innerHTML = sessions.length ? sessions.map(function (item) {
       var seconds = Number.isFinite(item.durationSeconds) ? item.durationSeconds : (Number(item.duration) || 0) * 60;
