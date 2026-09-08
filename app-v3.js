@@ -266,6 +266,11 @@
   function setSyncText(text, error) {
     var box = document.querySelector('#accountState'); if (!box) return; box.textContent = text; box.classList.toggle('error', !!error);
   }
+  function authErrorMessage(error) {
+    var message = error && error.message ? error.message : String(error || '未知错误');
+    if (/failed to fetch|network|load failed/i.test(message)) return '浏览器无法连接账号服务器。请先强制刷新页面；若仍失败，请检查当前网络是否能直接访问 Supabase。';
+    return message;
+  }
   function updateAccountButton() {
     var button = document.querySelector('#accountButton');
     button.textContent = activeAccount ? activeAccount.email : '登录同步';
@@ -278,7 +283,7 @@
     if (!user || !cloudClient) { setSyncText('当前为访客模式，进度仅保存在这台设备。'); renderDaily(); updateStats(); return; }
     setSyncText('正在读取你的云端进度…');
     var result = await cloudClient.from('learning_progress').select('payload').eq('user_id', user.id).maybeSingle();
-    if (result.error) { setSyncText('读取失败：' + result.error.message, true); renderDaily(); return; }
+    if (result.error) { setSyncText('读取失败：' + authErrorMessage(result.error), true); renderDaily(); return; }
     if (result.data && result.data.payload) localStorage.setItem(storageKey(), JSON.stringify(normalizeProgress(result.data.payload)));
     else {
       var guest = normalizeProgress(JSON.parse(localStorage.getItem('yg-progress:guest') || 'null'));
@@ -297,13 +302,13 @@
     document.querySelector('#accountForm').addEventListener('submit', async function (event) {
       event.preventDefault(); var email = document.querySelector('#accountEmail').value.trim(); var password = document.querySelector('#accountPassword').value;
       setSyncText('正在登录…'); var result = await cloudClient.auth.signInWithPassword({ email: email, password: password });
-      if (result.error) setSyncText(result.error.message, true); else setSyncText('登录成功，正在同步进度…');
+      if (result.error) setSyncText(authErrorMessage(result.error), true); else setSyncText('登录成功，正在同步进度…');
     });
     document.querySelector('#signUpButton').onclick = async function () {
       var email = document.querySelector('#accountEmail').value.trim(); var password = document.querySelector('#accountPassword').value;
       if (!email || password.length < 6) { setSyncText('请输入邮箱和至少 6 位密码。', true); return; }
       setSyncText('正在创建账号…'); var result = await cloudClient.auth.signUp({ email: email, password: password });
-      if (result.error) setSyncText(result.error.message, true); else setSyncText(result.data.session ? '注册成功，正在同步。' : '注册成功，请先查看邮箱完成验证。');
+      if (result.error) setSyncText(authErrorMessage(result.error), true); else setSyncText(result.data.session ? '注册成功，正在同步。' : '注册成功，请先查看邮箱完成验证。');
     };
     document.querySelector('#signOutButton').onclick = async function () { await cloudClient.auth.signOut(); hideAccountDialog(); };
     cloudClient.auth.onAuthStateChange(function (_, session) { setTimeout(function () { loadAccount(session ? session.user : null); }, 0); });
