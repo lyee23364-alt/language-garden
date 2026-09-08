@@ -6,6 +6,20 @@
   var syncTimer = null;
   var stages = ['words', 'patterns', 'reading', 'speaking'];
   var stageLabels = { words: '单词记忆', patterns: '词汇造句', reading: '读写输出', speaking: '口语表达' };
+  var topicVersion = 2;
+  SCENES.study = '学习成长';
+  SCENE_CONTENT.english.study = {
+    words: [['retain','/rɪˈteɪn/','记住；保留','Using a new word helps me retain it.'],['review','/rɪˈvjuː/','复习；回顾','I review difficult words the next day.'],['focus','/ˈfəʊkəs/','专注','I can focus better in a quiet place.'],['progress','/ˈprəʊɡres/','进步；进展','Small steps still create real progress.'],['challenging','/ˈtʃælɪndʒɪŋ/','有挑战性的','Speaking is challenging, but it gets easier.']],
+    patterns: [['One thing that helps me learn is ___.','对我学习有帮助的一件事是……','One thing that helps me learn is using new words in a diary.','联系你的真实学习习惯写完整表达。'],['I find ___ challenging, so I ___.','我觉得……有挑战，所以我……','I find speaking challenging, so I practise for one minute every day.','说明一个困难以及你的解决办法。']],
+    reading: ['Why using a word matters','Seeing a new word once is rarely enough. We remember it more clearly when we retrieve it, connect it with something familiar, and use it in our own sentence. Short reviews over several days are usually more effective than one long study session.','只看一次新单词通常不够。当我们主动回忆、把它和熟悉的事物联系起来，并用它造出自己的句子时，记忆会更清晰。分散在几天内的短复习通常比一次长时间学习更有效。','用自己的话说明你会怎样记住今天的单词，并至少使用两个当日词汇。'],
+    speaking: ['How you learn something difficult',['What are you learning now?','What is challenging?','How do you review and notice progress?'],'Right now, I am learning ... The most challenging part is ...']
+  };
+  SCENE_CONTENT.german.study = {
+    words: [['üben','[ˈyːbn̩]','练习','Ich übe jeden Tag zehn Minuten.'],['verstehen','[fɛɐ̯ˈʃteːən]','理解','Jetzt verstehe ich den Satz besser.'],['merken','[ˈmɛʁkn̩]','记住；察觉','Ich merke mir neue Wörter mit Beispielen.'],['die Aufgabe','[ˈaʊ̯fˌɡaːbə]','任务；练习题','Die Aufgabe ist kurz, aber hilfreich.'],['der Fortschritt','[ˈfɔʁtˌʃʁɪt]','进步','Ich sehe jeden Monat einen Fortschritt.']],
+    patterns: [['Beim Lernen hilft mir ___.','学习时……对我有帮助','Beim Lernen hilft mir eine kurze tägliche Wiederholung.','联系你的真实学习方法写完整句子。'],['___ ist für mich schwierig, deshalb ___.','……对我很难，所以……','Sprechen ist für mich schwierig, deshalb übe ich jeden Morgen.','说明一个学习困难和解决办法。']],
+    reading: ['Neue Wörter aktiv lernen','Ein neues Wort nur zu lesen reicht oft nicht. Ich spreche es laut, schreibe einen eigenen Satz und wiederhole es am nächsten Tag. So verstehe ich das Wort besser und kann es später aktiv benutzen.','只阅读一个新单词通常不够。我会把它大声读出来、写一个自己的句子，并在第二天复习。这样我能更好地理解它，以后也能主动使用。','写 5–7 句德语，介绍你记忆新单词的方法，并使用两个当日词汇。'],
+    speaking: ['So lerne ich eine Sprache',['Was lernst du gerade?','Was ist schwierig?','Wie übst du und siehst deinen Fortschritt?'],'Zurzeit lerne ich ... Für mich ist ... schwierig.']
+  };
   var activeSeconds = { words: 0, patterns: 0, reading: 0, speaking: 0 };
   var lastInteractionAt = Date.now();
 
@@ -89,13 +103,13 @@
   function getPlan() {
     var data = readStore();
     var key = planKey();
-    if (!data.daily[key]) {
+    if (!data.daily[key] || data.daily[key].topicVersion !== topicVersion) {
       var random = rng(hash(key + ':' + userKey()));
       var sceneKeys = Object.keys(SCENES);
       var selectedScene = sceneKeys[Math.floor(random() * sceneKeys.length)];
       var deck = SCENE_CONTENT[state.language][selectedScene].words;
       data.daily[key] = {
-        date: localDateKey(), language: state.language, scene: selectedScene,
+        date: localDateKey(), language: state.language, scene: selectedScene, topicVersion: topicVersion,
         wordOrder: shuffledIndexes(deck.length, random).slice(0, 5), wordPos: 0,
         stage: 'words', patternStep: 0, completed: []
       };
@@ -131,7 +145,8 @@
       return '<div class="daily-nav-item ' + status + '">' + stageLabels[item] + '</div>';
     }).join('');
     document.querySelector('#practiceTitle').textContent = plan.stage === 'complete' ? '今日完成' : stageLabels[plan.stage];
-    document.querySelector('#levelLabel').innerHTML = DATA[state.language].level + '<br><span class="scene-caption">今日随机场景：' + SCENES[plan.scene] + '</span>';
+    document.querySelector('.section-title h2').textContent = '今日主题：' + SCENES[plan.scene];
+    document.querySelector('#levelLabel').innerHTML = DATA[state.language].level + '<br><span class="scene-caption">今日随机主题：' + SCENES[plan.scene] + '</span>';
   }
 
   function saveSessionOnce(module, note, score) {
@@ -287,10 +302,10 @@
 
   var scenePicker = document.querySelector('#scene'); if (scenePicker) scenePicker.remove();
   var backToModules = document.querySelector('#backToModules'); if (backToModules) backToModules.remove();
-  document.querySelector('.section-title span').textContent = 'YOUR DAILY ROUTE';
-  document.querySelector('.section-title h2').textContent = '今天的随机学习路线';
-  document.querySelector('.section-title p').textContent = '同一账号当天保持不变，明天自动换一套。';
-  document.querySelector('.privacy').textContent = '登录后进度会保存到个人账号并跨设备同步；访客模式只保存在当前设备。每日任务会自动换题，但资料库内容仍随网站版本扩充。';
+  document.querySelector('.section-title span').textContent = "TODAY'S TOPIC";
+  document.querySelector('.section-title h2').textContent = '正在生成今日主题…';
+  document.querySelector('.section-title p').textContent = '主题每天随机更新，四项练习顺序固定。';
+  document.querySelector('.privacy').textContent = '登录后进度会保存到个人账号并跨设备同步；访客模式只保存在当前设备。旅行、工作、学习等主题每天随机更新，资料库内容随网站版本扩充。';
   document.querySelector('#language').onchange = function (event) { state.language = event.target.value; localStorage.setItem('yg-language', state.language); resetTimer(); syncHeader(); renderDaily(); updateStats(); };
 
   function escapeHtml(value) {
