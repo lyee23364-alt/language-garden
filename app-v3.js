@@ -333,21 +333,56 @@
   function escapeHtml(value) {
     return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]; });
   }
+  function reviewTimingLabel(due) {
+    var remaining = Number(due) - Date.now();
+    if (remaining <= 0) return '现在可以复习';
+    var days = Math.ceil(remaining / 86400000);
+    return days === 1 ? '明天复习' : days + ' 天后复习';
+  }
+  function rescheduleReview(key, rating) {
+    var data = readStore();
+    var item = data.reviews.find(function (entry) { return entry.key === key; });
+    if (!item) return;
+    var days = rating === 'easy' ? 7 : rating === 'hard' ? 1 : 0;
+    item.due = Date.now() + days * 86400000;
+    item.reviewCount = (Number(item.reviewCount) || 0) + 1;
+    item.lastReviewedAt = new Date().toISOString();
+    writeStore(data);
+    toast(days ? '已安排 ' + days + ' 天后复习' : '已保留在今日复习');
+    updateStats();
+  }
   updateStats = function () {
-    var data = readStore(); var sessions = data.sessions; var due = data.reviews.filter(function (item) { return item.due <= Date.now(); });
+    var data = readStore(); var sessions = data.sessions;
+    var reviews = data.reviews.slice().sort(function (a, b) { return Number(a.due) - Number(b.due); });
+    var due = reviews.filter(function (item) { return item.due <= Date.now(); });
     var totalSeconds = sessions.reduce(function (sum, item) { return sum + (Number.isFinite(item.durationSeconds) ? item.durationSeconds : (Number(item.duration) || 0) * 60); }, 0);
     var days = new Set(sessions.map(function (item) { return item.date.slice(0, 10); })).size;
     document.querySelector('#streak').textContent = days;
-    document.querySelector('#dueBadge').textContent = due.length;
+    document.querySelector('#dueBadge').textContent = reviews.length;
+    document.querySelector('#dueBadge').parentElement.title = reviews.length + ' 个单词已进入复习计划，其中 ' + due.length + ' 个现在到期';
     document.querySelector('#weekLabel').textContent = formatDuration(totalSeconds) + ' / 180 分钟';
     document.querySelector('#weekBar').style.width = Math.min(100, totalSeconds / (180 * 60) * 100) + '%';
     document.querySelector('#totalMinutes').textContent = totalSeconds < 60 ? '<1' : Math.round(totalSeconds / 60);
     document.querySelector('#studyDays').textContent = days;
     document.querySelector('#sessionCount').textContent = sessions.length;
-    document.querySelector('#reviewList').innerHTML = due.length ? due.map(function (item) {
-      return '<article><div><strong>' + escapeHtml(item.prompt) + '</strong><small>' + escapeHtml(item.answer) + '</small></div><button class="btn" data-review="' + escapeHtml(item.key) + '">放入今日复习</button></article>';
-    }).join('') : '<div class="empty">暂无到期内容。完成单词练习后，复习项目会出现在这里。</div>';
-    document.querySelectorAll('[data-review]').forEach(function (button) { button.onclick = function () { showPanel('learn'); document.querySelector('#practice').scrollIntoView({ behavior: 'smooth' }); toast('已回到今日学习路线'); }; });
+    document.querySelector('#reviewList').innerHTML = reviews.length ? reviews.map(function (item) {
+      var encodedKey = encodeURIComponent(item.key);
+      var status = reviewTimingLabel(item.due);
+      return '<article class="review-item ' + (item.due <= Date.now() ? 'is-due' : 'is-upcoming') + '" data-review-card="' + encodedKey + '"><div class="review-copy"><strong>' + escapeHtml(item.prompt) + '</strong><span class="review-schedule">' + escapeHtml(DATA[item.language] ? DATA[item.language].label : '') + ' · ' + status + '</span><small class="review-answer hidden">' + escapeHtml(item.answer) + '</small></div><div class="review-actions"><button class="btn" data-review-reveal>查看答案</button><div class="review-rating hidden"><button class="btn" data-review-rate="again" data-review-key="' + encodedKey + '">再来</button><button class="btn" data-review-rate="hard" data-review-key="' + encodedKey + '">有点难</button><button class="btn primary" data-review-rate="easy" data-review-key="' + encodedKey + '">记住了</button></div></div></article>';
+    }).join('') : '<div class="empty">暂无复习内容。完成单词练习后，单词会立即出现在这里。</div>';
+    document.querySelectorAll('[data-review-reveal]').forEach(function (button) {
+      button.onclick = function () {
+        var card = button.closest('[data-review-card]');
+        var answer = card.querySelector('.review-answer');
+        var rating = card.querySelector('.review-rating');
+        var willShow = answer.classList.contains('hidden');
+        answer.classList.toggle('hidden', !willShow); rating.classList.toggle('hidden', !willShow);
+        button.textContent = willShow ? '隐藏答案' : '查看答案';
+      };
+    });
+    document.querySelectorAll('[data-review-rate]').forEach(function (button) {
+      button.onclick = function () { rescheduleReview(decodeURIComponent(button.dataset.reviewKey), button.dataset.reviewRate); };
+    });
     document.querySelector('#historyList').innerHTML = sessions.length ? sessions.map(function (item) {
       var seconds = Number.isFinite(item.durationSeconds) ? item.durationSeconds : (Number(item.duration) || 0) * 60;
       var timeLabel = formatDuration(seconds) + (Number.isFinite(item.durationSeconds) ? '' : ' · 旧版估算');
