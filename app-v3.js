@@ -6,6 +6,29 @@
   var syncTimer = null;
   var stages = ['words', 'patterns', 'reading', 'speaking'];
   var stageLabels = { words: '单词记忆', patterns: '词汇造句', reading: '读写输出', speaking: '口语表达' };
+  var activeSeconds = { words: 0, patterns: 0, reading: 0, speaking: 0 };
+  var lastInteractionAt = Date.now();
+
+  ['pointerdown', 'keydown', 'input', 'touchstart'].forEach(function (eventName) {
+    document.addEventListener(eventName, function () { lastInteractionAt = Date.now(); }, { passive: true });
+  });
+  setInterval(function () {
+    if (!document.hidden && stages.indexOf(state.module) >= 0 && Date.now() - lastInteractionAt < 60000) {
+      activeSeconds[state.module] += 1;
+    }
+  }, 1000);
+
+  function takeActiveSeconds(module) {
+    var seconds = Math.max(1, Math.round(activeSeconds[module] || 0));
+    activeSeconds[module] = 0;
+    return seconds;
+  }
+  function formatDuration(seconds) {
+    seconds = Math.max(0, Math.round(seconds || 0));
+    if (seconds < 60) return seconds + ' 秒';
+    var minutes = Math.floor(seconds / 60); var rest = seconds % 60;
+    return rest ? minutes + ' 分 ' + rest + ' 秒' : minutes + ' 分钟';
+  }
 
   function blankProgress() { return { sessions: [], reviews: [], daily: {} }; }
   function normalizeProgress(value) {
@@ -115,12 +138,14 @@
     var data = readStore();
     var marker = planKey() + ':' + module;
     if (data.sessions.some(function (item) { return item.marker === marker; })) return;
-    data.sessions.unshift({ id: Date.now(), marker: marker, date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, duration: MODES[state.mode][0], note: note || '', score: score == null ? null : score });
+    var seconds = takeActiveSeconds(module);
+    data.sessions.unshift({ id: Date.now(), marker: marker, date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, targetMinutes: MODES[state.mode][0], durationSeconds: seconds, duration: seconds / 60, note: note || '', score: score == null ? null : score });
     writeStore(data); updateStats();
   }
   saveSession = function (module, note, score) {
     var data = readStore();
-    data.sessions.unshift({ id: Date.now(), date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, duration: MODES[state.mode][0], note: note || '', score: score == null ? null : score });
+    var seconds = takeActiveSeconds(module);
+    data.sessions.unshift({ id: Date.now(), date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, targetMinutes: MODES[state.mode][0], durationSeconds: seconds, duration: seconds / 60, note: note || '', score: score == null ? null : score });
     writeStore(data); toast(activeAccount ? '已保存，正在同步' : '已保存到访客设备'); updateStats();
   };
   function finishStage(plan, stage, next) {
@@ -267,6 +292,31 @@
   document.querySelector('.section-title p').textContent = '同一账号当天保持不变，明天自动换一套。';
   document.querySelector('.privacy').textContent = '登录后进度会保存到个人账号并跨设备同步；访客模式只保存在当前设备。每日任务会自动换题，但资料库内容仍随网站版本扩充。';
   document.querySelector('#language').onchange = function (event) { state.language = event.target.value; localStorage.setItem('yg-language', state.language); resetTimer(); syncHeader(); renderDaily(); updateStats(); };
+
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (char) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]; });
+  }
+  updateStats = function () {
+    var data = readStore(); var sessions = data.sessions; var due = data.reviews.filter(function (item) { return item.due <= Date.now(); });
+    var totalSeconds = sessions.reduce(function (sum, item) { return sum + (Number.isFinite(item.durationSeconds) ? item.durationSeconds : (Number(item.duration) || 0) * 60); }, 0);
+    var days = new Set(sessions.map(function (item) { return item.date.slice(0, 10); })).size;
+    document.querySelector('#streak').textContent = days;
+    document.querySelector('#dueBadge').textContent = due.length;
+    document.querySelector('#weekLabel').textContent = formatDuration(totalSeconds) + ' / 180 分钟';
+    document.querySelector('#weekBar').style.width = Math.min(100, totalSeconds / (180 * 60) * 100) + '%';
+    document.querySelector('#totalMinutes').textContent = totalSeconds < 60 ? '<1' : Math.round(totalSeconds / 60);
+    document.querySelector('#studyDays').textContent = days;
+    document.querySelector('#sessionCount').textContent = sessions.length;
+    document.querySelector('#reviewList').innerHTML = due.length ? due.map(function (item) {
+      return '<article><div><strong>' + escapeHtml(item.prompt) + '</strong><small>' + escapeHtml(item.answer) + '</small></div><button class="btn" data-review="' + escapeHtml(item.key) + '">放入今日复习</button></article>';
+    }).join('') : '<div class="empty">暂无到期内容。完成单词练习后，复习项目会出现在这里。</div>';
+    document.querySelectorAll('[data-review]').forEach(function (button) { button.onclick = function () { showPanel('learn'); document.querySelector('#practice').scrollIntoView({ behavior: 'smooth' }); toast('已回到今日学习路线'); }; });
+    document.querySelector('#historyList').innerHTML = sessions.length ? sessions.map(function (item) {
+      var seconds = Number.isFinite(item.durationSeconds) ? item.durationSeconds : (Number(item.duration) || 0) * 60;
+      var timeLabel = formatDuration(seconds) + (Number.isFinite(item.durationSeconds) ? '' : ' · 旧版估算');
+      return '<article><div><strong>' + DATA[item.language].label + ' · ' + NAMES[item.module] + (item.score ? ' · ' + item.score + ' 分' : '') + '</strong><small>' + escapeHtml(item.note || MODES[item.mode][1]) + '</small></div><time>' + new Date(item.date).toLocaleString('zh-CN') + ' · ' + timeLabel + '</time></article>';
+    }).join('') : '<div class="empty">完成第一次练习后，记录会保存在这里。</div>';
+  };
 
   renderPractice = renderDaily;
   setDailyState(); renderDaily(); updateStats(); initAccount();
