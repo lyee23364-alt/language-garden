@@ -1,0 +1,274 @@
+(function () {
+  'use strict';
+
+  var cloudClient = null;
+  var activeAccount = null;
+  var syncTimer = null;
+  var stages = ['words', 'patterns', 'reading', 'speaking'];
+  var stageLabels = { words: '单词记忆', patterns: '词汇造句', reading: '读写输出', speaking: '口语表达' };
+
+  function blankProgress() { return { sessions: [], reviews: [], daily: {} }; }
+  function normalizeProgress(value) {
+    var data = value && typeof value === 'object' ? value : blankProgress();
+    if (!Array.isArray(data.sessions)) data.sessions = [];
+    if (!Array.isArray(data.reviews)) data.reviews = [];
+    if (!data.daily || typeof data.daily !== 'object') data.daily = {};
+    return data;
+  }
+  function userKey() { return activeAccount ? activeAccount.id : 'guest'; }
+  function storageKey() { return 'yg-progress:' + userKey(); }
+
+  if (!localStorage.getItem('yg-progress:guest') && localStorage.getItem('yg-progress')) {
+    localStorage.setItem('yg-progress:guest', localStorage.getItem('yg-progress'));
+  }
+
+  readStore = function () {
+    try { return normalizeProgress(JSON.parse(localStorage.getItem(storageKey()) || 'null')); }
+    catch (_) { return blankProgress(); }
+  };
+  writeStore = function (data) {
+    data = normalizeProgress(data);
+    localStorage.setItem(storageKey(), JSON.stringify(data));
+    if (activeAccount && cloudClient) scheduleCloudSave(data);
+  };
+
+  function scheduleCloudSave(data) {
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(async function () {
+      var result = await cloudClient.from('learning_progress').upsert({
+        user_id: activeAccount.id,
+        payload: data,
+        updated_at: new Date().toISOString()
+      });
+      if (result.error) toast('云端同步失败：' + result.error.message);
+      else setSyncText('已同步到个人账号');
+    }, 350);
+  }
+
+  function localDateKey() {
+    var now = new Date();
+    return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  }
+  function hash(text) {
+    var h = 2166136261;
+    for (var i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+    return h >>> 0;
+  }
+  function rng(seed) {
+    return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; var t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+  }
+  function shuffledIndexes(length, random) {
+    var values = Array.from({ length: length }, function (_, i) { return i; });
+    for (var i = values.length - 1; i > 0; i--) { var j = Math.floor(random() * (i + 1)); var x = values[i]; values[i] = values[j]; values[j] = x; }
+    return values;
+  }
+  function planKey() { return localDateKey() + ':' + state.language; }
+  function getPlan() {
+    var data = readStore();
+    var key = planKey();
+    if (!data.daily[key]) {
+      var random = rng(hash(key + ':' + userKey()));
+      var sceneKeys = Object.keys(SCENES);
+      var selectedScene = sceneKeys[Math.floor(random() * sceneKeys.length)];
+      var deck = SCENE_CONTENT[state.language][selectedScene].words;
+      data.daily[key] = {
+        date: localDateKey(), language: state.language, scene: selectedScene,
+        wordOrder: shuffledIndexes(deck.length, random).slice(0, 5), wordPos: 0,
+        stage: 'words', patternStep: 0, completed: []
+      };
+      writeStore(data);
+    }
+    return data.daily[key];
+  }
+  function savePlan(plan) {
+    var data = readStore(); data.daily[planKey()] = plan; writeStore(data);
+  }
+  function todayWords(plan) {
+    var deck = SCENE_CONTENT[state.language][plan.scene].words;
+    return plan.wordOrder.map(function (i) { return deck[i]; });
+  }
+  function setDailyState() {
+    var plan = getPlan();
+    state.scene = plan.scene; state.module = plan.stage; state.wordsDone = plan.wordPos;
+    state.word = plan.wordOrder[Math.min(plan.wordPos, plan.wordOrder.length - 1)] || 0;
+    state.pattern = plan.patternStep; state.groupDone = false; state.revealed = false;
+    return plan;
+  }
+
+  function renderRoadmap(plan) {
+    var current = stages.indexOf(plan.stage);
+    document.querySelector('#moduleCards').className = 'daily-roadmap';
+    document.querySelector('#moduleCards').innerHTML = stages.map(function (item, index) {
+      var status = plan.completed.indexOf(item) >= 0 ? 'done' : (item === plan.stage ? 'current' : '');
+      var notes = ['5 个当日词汇', '2 次主动造句', '1 次主题输出', '60 秒表达'];
+      return '<div class="daily-step ' + status + '"><small>0' + (index + 1) + ' · ' + (index < current ? 'DONE' : index === current ? 'NOW' : 'NEXT') + '</small><strong>' + stageLabels[item] + '</strong><span>' + notes[index] + '</span></div>';
+    }).join('');
+    document.querySelector('#practiceNav').innerHTML = stages.map(function (item) {
+      var status = plan.completed.indexOf(item) >= 0 ? 'done' : (item === plan.stage ? 'current' : '');
+      return '<div class="daily-nav-item ' + status + '">' + stageLabels[item] + '</div>';
+    }).join('');
+    document.querySelector('#practiceTitle').textContent = plan.stage === 'complete' ? '今日完成' : stageLabels[plan.stage];
+    document.querySelector('#levelLabel').innerHTML = DATA[state.language].level + '<br><span class="scene-caption">今日随机场景：' + SCENES[plan.scene] + '</span>';
+  }
+
+  function saveSessionOnce(module, note, score) {
+    var data = readStore();
+    var marker = planKey() + ':' + module;
+    if (data.sessions.some(function (item) { return item.marker === marker; })) return;
+    data.sessions.unshift({ id: Date.now(), marker: marker, date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, duration: MODES[state.mode][0], note: note || '', score: score == null ? null : score });
+    writeStore(data); updateStats();
+  }
+  saveSession = function (module, note, score) {
+    var data = readStore();
+    data.sessions.unshift({ id: Date.now(), date: new Date().toISOString(), language: state.language, module: module, mode: state.mode, duration: MODES[state.mode][0], note: note || '', score: score == null ? null : score });
+    writeStore(data); toast(activeAccount ? '已保存，正在同步' : '已保存到访客设备'); updateStats();
+  };
+  function finishStage(plan, stage, next) {
+    if (plan.completed.indexOf(stage) < 0) plan.completed.push(stage);
+    plan.stage = next; savePlan(plan); setDailyState(); renderDaily(); updateStats();
+  }
+  function addReviewAndAdvance(word, rating) {
+    var data = readStore(); var now = Date.now(); var days = rating === 'easy' ? 7 : rating === 'hard' ? 1 : 0;
+    var key = state.language + ':' + getPlan().scene + ':' + word[0];
+    var item = { key: key, prompt: word[0], answer: word[2] + ' · ' + word[3], module: 'words', language: state.language, due: now + days * 86400000 };
+    var found = data.reviews.find(function (x) { return x.key === key; }); if (found) Object.assign(found, item); else data.reviews.push(item);
+    writeStore(data);
+    var plan = getPlan(); plan.wordPos += 1;
+    if (plan.wordPos >= plan.wordOrder.length) { saveSessionOnce('words', SCENES[plan.scene] + ' · 完成 5 个当日单词', null); finishStage(plan, 'words', 'patterns'); }
+    else { savePlan(plan); setDailyState(); renderDaily(); updateStats(); }
+  }
+
+  function termToken(term) { return term.toLowerCase().replace(/^(der|die|das)\s+/, '').trim(); }
+  function includesTerm(text, term) { return text.toLowerCase().indexOf(termToken(term)) >= 0; }
+  function scoreWithVocabulary(text, required, target) {
+    var clean = text.trim(); if (!clean) return { score: 0, tips: '先写出你的完整表达。', used: [] };
+    var tokens = clean.split(/\s+/).filter(Boolean); var used = required.filter(function (word) { return includesTerm(clean, word[0]); });
+    var score = Math.min(35, Math.round(tokens.length / target * 35));
+    score += /[.!?。！？]$/.test(clean) ? 15 : 8;
+    score += /[A-Za-zÄÖÜäöüß]/.test(clean) ? 10 : 0;
+    score += Math.round(40 * used.length / required.length);
+    var missed = required.filter(function (word) { return used.indexOf(word) < 0; }).map(function (word) { return word[0]; });
+    var tips = [];
+    if (missed.length) tips.push('再自然地加入：' + missed.join('、'));
+    if (tokens.length < target) tips.push('补充一个具体的人、时间或原因');
+    if (!tips.length) tips.push('当日词汇使用完整，表达已经形成主动记忆');
+    return { score: Math.min(100, score), tips: tips.join('；'), used: used };
+  }
+  function showVocabularyScore(root, text, required, target) {
+    var result = scoreWithVocabulary(text, required, target); var box = root.querySelector('.score-result');
+    box.classList.remove('hidden'); box.innerHTML = '<strong>' + result.score + '</strong> / 100<br><span>' + result.tips + '</span>';
+    root.querySelectorAll('.vocab-chip').forEach(function (chip) { chip.classList.toggle('used', includesTerm(text, chip.dataset.term)); });
+    return result.score;
+  }
+
+  function renderWords(root, plan, words) {
+    var w = words[plan.wordPos];
+    root.innerHTML = '<article class="practice-card"><div class="card-top"><span>今日单词 ' + (plan.wordPos + 1) + ' / ' + words.length + '</span><span>' + SCENES[plan.scene] + ' · ' + DATA[state.language].label + '</span></div><div class="center"><button class="sound" aria-label="朗读">▶</button><h3 class="big-word">' + w[0] + '</h3><p class="phonetic">' + w[1] + '</p><button class="reveal">' + (state.revealed ? '隐藏释义' : '先回忆，再看答案') + '</button>' + (state.revealed ? '<div class="answer"><strong>' + w[2] + '</strong><p>' + w[3] + '</p></div>' : '') + '</div><div class="rating"><span>这次想起来了吗？</span><div><button class="btn" data-daily-rate="again">再来</button><button class="btn" data-daily-rate="hard">有点难</button><button class="btn primary" data-daily-rate="easy">记住了</button></div></div></article>';
+    root.querySelector('.sound').onclick = function () { speak(w[0]); };
+    root.querySelector('.reveal').onclick = function () { state.revealed = !state.revealed; renderDaily(); };
+    root.querySelectorAll('[data-daily-rate]').forEach(function (button) { button.onclick = function () { addReviewAndAdvance(w, button.dataset.dailyRate); }; });
+  }
+  function renderPatterns(root, plan, words) {
+    var content = SCENE_CONTENT[state.language][plan.scene]; var round = plan.patternStep || 0;
+    var pattern = content.patterns[round % content.patterns.length]; var required = round === 0 ? [words[0], words[1]] : [words[2], words[3]];
+    root.innerHTML = '<article class="practice-card"><div class="card-top"><span>主动造句 ' + (round + 1) + ' / 2</span><span>调用刚学过的词</span></div><div class="pattern-body"><span class="eyebrow" style="color:var(--muted)">RETRIEVE & USE</span><h3>把今天的词放进真实表达</h3><p class="hint">' + pattern[3] + ' 不需要照抄或只填空，请写一个与你有关的完整表达。</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + ' · ' + w[2] + '</span>'; }).join('') + '</div><textarea class="response-box" id="patternInput" placeholder="写 1–3 个完整句子，并自然使用上面的当日单词……"></textarea><div class="action-row"><button class="btn" id="patternHelp">查看句型支架</button><button class="btn primary" id="scorePattern">评分并继续</button></div><div class="task-box hidden" id="patternSample"><small>句型支架</small><strong style="display:block;margin-top:6px">' + pattern[0] + '</strong><p>参考表达：' + pattern[2] + '</p></div><div class="score-result hidden"></div></div></article>';
+    var input = root.querySelector('#patternInput'); root.querySelector('#patternHelp').onclick = function () { root.querySelector('#patternSample').classList.toggle('hidden'); };
+    root.querySelector('#scorePattern').onclick = function () {
+      var score = showVocabularyScore(root, input.value, required, 9); if (!input.value.trim()) return;
+      saveSession('patterns', '当日词汇造句：' + input.value, score); plan.patternStep = round + 1;
+      if (plan.patternStep >= 2) finishStage(plan, 'patterns', 'reading'); else { savePlan(plan); setDailyState(); renderDaily(); }
+    };
+  }
+  function renderReading(root, plan, words) {
+    var item = SCENE_CONTENT[state.language][plan.scene].reading; var required = [words[1], words[4]];
+    root.innerHTML = '<article class="practice-card reading"><section class="article"><span class="eyebrow">' + SCENES[plan.scene] + ' · SHORT READING</span><h3>' + item[0] + '</h3><p>' + item[1] + '</p><button class="reveal" id="translate">查看中文</button><div id="translation" class="translation hidden">' + item[2] + '</div></section><section class="writing"><span class="eyebrow" style="color:var(--muted)">YOUR OUTPUT</span><h4>' + item[3] + '</h4><p class="hint">尝试再次使用：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea id="draft" placeholder="在这里写下你的回答……"></textarea><div class="action-row"><small id="count">0 字符</small><button class="btn primary" id="scoreWriting">评分并进入口语</button></div><div class="score-result hidden"></div></section></article>';
+    var input = root.querySelector('#draft'); input.oninput = function () { root.querySelector('#count').textContent = input.value.length + ' 字符'; };
+    root.querySelector('#translate').onclick = function () { root.querySelector('#translation').classList.toggle('hidden'); };
+    root.querySelector('#scoreWriting').onclick = function () { var score = showVocabularyScore(root, input.value, required, 30); if (!input.value.trim()) return; saveSessionOnce('reading', input.value, score); finishStage(plan, 'reading', 'speaking'); };
+  }
+  function renderSpeaking(root, plan, words) {
+    var item = SCENE_CONTENT[state.language][plan.scene].speaking; var required = [words[0], words[4]];
+    root.innerHTML = '<article class="practice-card speaking"><section class="speaking-body"><span class="eyebrow" style="color:var(--muted)">' + SCENES[plan.scene] + ' · 60-SECOND SPEAKING</span><h3>' + item[0] + '</h3><ul>' + item[1].map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul><p class="hint">尽量说出今天的词：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea class="response-box" id="speechText" placeholder="可输入或使用语音转写……"></textarea><div class="action-row"><button class="btn" id="dictate">🎙 语音转写</button><button class="btn primary" id="scoreSpeaking">完成今日任务</button><span class="mic-status" id="micStatus"></span></div><div class="score-result hidden"></div></section><aside class="timer ' + (state.timerId ? 'running' : '') + '"><strong id="timerValue">' + state.timer + '</strong><small>秒</small><div class="timer-controls"><button id="timerToggle">' + (state.timerId ? 'Ⅱ' : '▶') + '</button><button id="timerReset">↺</button></div></aside></article>';
+    var input = root.querySelector('#speechText'); root.querySelector('#timerToggle').onclick = toggleTimer; root.querySelector('#timerReset').onclick = resetTimer; root.querySelector('#dictate').onclick = function () { startDictation(root); };
+    root.querySelector('#scoreSpeaking').onclick = function () { var score = showVocabularyScore(root, input.value, required, 22); if (!input.value.trim()) return; saveSessionOnce('speaking', input.value, score); finishStage(plan, 'speaking', 'complete'); toast('今日学习路线已完成'); };
+  }
+  function renderComplete(root, plan, words) {
+    root.innerHTML = '<article class="practice-card"><div class="daily-complete"><span class="finish-mark">✓</span><h3>今天的路线完成了</h3><p>你已经从回忆走到输出，并在句型、读写和口语中重复调用了 <strong>' + words.map(function (w) { return w[0]; }).join('、') + '</strong>。明天会根据日期和账号生成另一套任务。</p><button class="btn primary" id="openHistory">查看今日记录</button></div></article>';
+    root.querySelector('#openHistory').onclick = function () { showPanel('history'); };
+  }
+  function renderDaily() {
+    var plan = setDailyState(); var root = document.querySelector('#practiceContent'); var words = todayWords(plan);
+    renderRoadmap(plan);
+    if (plan.stage === 'words') renderWords(root, plan, words);
+    else if (plan.stage === 'patterns') renderPatterns(root, plan, words);
+    else if (plan.stage === 'reading') renderReading(root, plan, words);
+    else if (plan.stage === 'speaking') renderSpeaking(root, plan, words);
+    else renderComplete(root, plan, words);
+  }
+
+  function setSyncText(text, error) {
+    var box = document.querySelector('#accountState'); if (!box) return; box.textContent = text; box.classList.toggle('error', !!error);
+  }
+  function updateAccountButton() {
+    var button = document.querySelector('#accountButton');
+    button.textContent = activeAccount ? activeAccount.email : '登录同步';
+    button.classList.toggle('online', !!activeAccount);
+  }
+  function showAccountDialog() { document.querySelector('#accountOverlay').classList.remove('hidden'); }
+  function hideAccountDialog() { document.querySelector('#accountOverlay').classList.add('hidden'); }
+  async function loadAccount(user) {
+    activeAccount = user || null; updateAccountButton();
+    if (!user || !cloudClient) { setSyncText('当前为访客模式，进度仅保存在这台设备。'); renderDaily(); updateStats(); return; }
+    setSyncText('正在读取你的云端进度…');
+    var result = await cloudClient.from('learning_progress').select('payload').eq('user_id', user.id).maybeSingle();
+    if (result.error) { setSyncText('读取失败：' + result.error.message, true); renderDaily(); return; }
+    if (result.data && result.data.payload) localStorage.setItem(storageKey(), JSON.stringify(normalizeProgress(result.data.payload)));
+    else {
+      var guest = normalizeProgress(JSON.parse(localStorage.getItem('yg-progress:guest') || 'null'));
+      localStorage.setItem(storageKey(), JSON.stringify(guest)); scheduleCloudSave(guest);
+    }
+    setSyncText('已登录，进度会自动同步到此账号。'); renderDaily(); updateStats();
+  }
+  async function initAccount() {
+    var config = window.YG_SUPABASE || {};
+    var ready = /^https:\/\/.+\.supabase\.co$/.test(config.url || '') && !!config.publishableKey && window.supabase;
+    if (!ready) {
+      document.querySelectorAll('#accountForm input, #accountForm button').forEach(function (el) { el.disabled = true; });
+      setSyncText('账号服务尚未连接。完成 Supabase 配置后即可注册和跨设备同步。', true); return;
+    }
+    cloudClient = window.supabase.createClient(config.url, config.publishableKey);
+    document.querySelector('#accountForm').addEventListener('submit', async function (event) {
+      event.preventDefault(); var email = document.querySelector('#accountEmail').value.trim(); var password = document.querySelector('#accountPassword').value;
+      setSyncText('正在登录…'); var result = await cloudClient.auth.signInWithPassword({ email: email, password: password });
+      if (result.error) setSyncText(result.error.message, true); else setSyncText('登录成功，正在同步进度…');
+    });
+    document.querySelector('#signUpButton').onclick = async function () {
+      var email = document.querySelector('#accountEmail').value.trim(); var password = document.querySelector('#accountPassword').value;
+      if (!email || password.length < 6) { setSyncText('请输入邮箱和至少 6 位密码。', true); return; }
+      setSyncText('正在创建账号…'); var result = await cloudClient.auth.signUp({ email: email, password: password });
+      if (result.error) setSyncText(result.error.message, true); else setSyncText(result.data.session ? '注册成功，正在同步。' : '注册成功，请先查看邮箱完成验证。');
+    };
+    document.querySelector('#signOutButton').onclick = async function () { await cloudClient.auth.signOut(); hideAccountDialog(); };
+    cloudClient.auth.onAuthStateChange(function (_, session) { setTimeout(function () { loadAccount(session ? session.user : null); }, 0); });
+    var sessionResult = await cloudClient.auth.getSession(); await loadAccount(sessionResult.data.session ? sessionResult.data.session.user : null);
+  }
+
+  var headerRight = document.querySelector('.header-right');
+  headerRight.insertAdjacentHTML('afterbegin', '<button class="account-btn" id="accountButton">登录同步</button>');
+  document.body.insertAdjacentHTML('beforeend', '<div class="account-overlay hidden" id="accountOverlay" role="dialog" aria-modal="true" aria-labelledby="accountTitle"><section class="account-dialog"><button class="account-close" id="accountClose" aria-label="关闭">×</button><span class="eyebrow" style="color:var(--muted)">PERSONAL PROGRESS</span><h2 id="accountTitle">个人账号与云同步</h2><p>登录后，学习进度、评分和复习记录会跟随账号，可在其他设备继续。</p><div class="account-state" id="accountState">正在连接账号服务…</div><form class="account-form" id="accountForm"><label>邮箱<input id="accountEmail" type="email" autocomplete="email" required></label><label>密码<input id="accountPassword" type="password" autocomplete="current-password" minlength="6" required></label><div class="account-actions"><button class="btn primary" type="submit">登录</button><button class="btn" type="button" id="signUpButton">注册新账号</button></div><button class="btn" type="button" id="signOutButton">退出当前账号</button></form><div class="sync-note">仅保存学习数据，不上传录音。语音转写和评分仍在浏览器内完成。</div></section></div>');
+  document.querySelector('#accountButton').onclick = showAccountDialog; document.querySelector('#accountClose').onclick = hideAccountDialog;
+  document.querySelector('#accountOverlay').onclick = function (event) { if (event.target.id === 'accountOverlay') hideAccountDialog(); };
+  document.addEventListener('keydown', function (event) { if (event.key === 'Escape') hideAccountDialog(); });
+
+  var scenePicker = document.querySelector('#scene'); if (scenePicker) scenePicker.remove();
+  var backToModules = document.querySelector('#backToModules'); if (backToModules) backToModules.remove();
+  document.querySelector('.section-title span').textContent = 'YOUR DAILY ROUTE';
+  document.querySelector('.section-title h2').textContent = '今天的随机学习路线';
+  document.querySelector('.section-title p').textContent = '同一账号当天保持不变，明天自动换一套。';
+  document.querySelector('.privacy').textContent = '登录后进度会保存到个人账号并跨设备同步；访客模式只保存在当前设备。每日任务会自动换题，但资料库内容仍随网站版本扩充。';
+  document.querySelector('#language').onchange = function (event) { state.language = event.target.value; localStorage.setItem('yg-language', state.language); resetTimer(); syncHeader(); renderDaily(); updateStats(); };
+
+  renderPractice = renderDaily;
+  setDailyState(); renderDaily(); updateStats(); initAccount();
+})();
+

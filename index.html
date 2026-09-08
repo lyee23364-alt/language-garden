@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="description" content="适配繁忙工作节奏的英语与德语学习、复习与进度追踪工具">
   <title>语伴｜英语与德语学习台</title>
+  <link rel="stylesheet" href="upgrade.css">
   <style>
     :root{--ink:#142431;--paper:#f4f5ef;--card:#fff;--line:#d9ded8;--muted:#6e7a82;--lime:#d8ff59;--blue:#7183ff;--violet:#ead7ff;--orange:#ffdbc1;--shadow:0 24px 70px #23364212}
     *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,"Microsoft YaHei",system-ui,sans-serif}button,select,textarea{font:inherit}button{color:inherit}.hidden{display:none!important}
@@ -38,7 +39,7 @@
       <aside class="mode-box"><div class="mode-head"><span>今天的节奏</span><strong><span id="modeMinutes">35</span><small> MIN</small></strong></div><div class="segmented" id="modeTabs"><button class="active" data-mode="normal">正常</button><button data-mode="busy">忙碌</button><button data-mode="overtime">加班</button></div><div class="mode-note" id="modeNote"></div><div class="progress-line"><i id="weekBar"></i></div><div class="progress-label"><span>本周进度</span><b id="weekLabel">0 / 180 分钟</b></div></aside>
     </div>
     <main>
-      <div class="section-title"><div><span>CHOOSE A MODULE</span><h2>今天练什么？</h2></div><p>选一个模块即可开始，不需要全部完成。</p></div>
+      <div class="section-title"><div><span>YOUR DAILY ROUTE</span><h2>今天的随机学习路线</h2></div><p>同一账号当天保持不变，明天自动换一套。</p></div>
       <div class="modules" id="moduleCards">
         <button class="module active" data-module="words"><small>01 · RECALL</small><span class="module-icon">Aa</span><strong>单词</strong><p>主动回忆高频表达</p></button>
         <button class="module" data-module="patterns"><small>02 · BUILD</small><span class="module-icon">「」</span><strong>句型</strong><p>替换成自己的真实句子</p></button>
@@ -49,7 +50,7 @@
         <aside class="practice-side"><span class="eyebrow" style="color:var(--muted)">TODAY'S PRACTICE</span><h2 id="practiceTitle">单词</h2><p id="levelLabel"></p><div class="practice-nav" id="practiceNav"><button class="active" data-module="words">单词</button><button data-module="patterns">句型</button><button data-module="reading">读写</button><button data-module="speaking">口语</button></div></aside>
         <div id="practiceContent"></div>
       </section>
-      <div class="privacy">进度只保存在当前浏览器中，不会上传个人记录。更换设备或清理浏览器数据后记录会重置。</div>
+      <div class="privacy">登录后进度会保存到个人账号并跨设备同步；访客模式只保存在当前设备。每日任务会自动换题，但资料库内容仍随网站版本扩充。</div>
     </main>
   </section>
   <main id="reviewPanel" class="panel hidden"><span class="eyebrow" style="color:var(--muted)">SPACED REVIEW</span><h1>该复习的，<br>现在见。</h1><div id="reviewList" class="list"></div></main>
@@ -64,8 +65,8 @@
     const MODES={normal:[35,'主语言 25 分钟 + 复习 10 分钟'],busy:[15,'听读 10 分钟 + 输出 5 分钟'],overtime:[5,'听 3 分钟 + 跟读 1 分钟 + 写 1 句']};
     const NAMES={words:'单词',patterns:'句型',reading:'读写',speaking:'口语'};
     let state={language:localStorage.getItem('yg-language')||'english',mode:localStorage.getItem('yg-mode')||'normal',module:'words',word:0,pattern:0,timer:60,timerId:null,revealed:false};
-    const readStore=()=>JSON.parse(localStorage.getItem('yg-progress')||'{"sessions":[],"reviews":[]}');
-    const writeStore=x=>localStorage.setItem('yg-progress',JSON.stringify(x));
+    let readStore=()=>JSON.parse(localStorage.getItem('yg-progress')||'{"sessions":[],"reviews":[],"daily":{}}');
+    let writeStore=x=>localStorage.setItem('yg-progress',JSON.stringify(x));
     const toast=t=>{const el=document.querySelector('#toast');el.textContent=t;el.classList.remove('hidden');clearTimeout(toast.id);toast.id=setTimeout(()=>el.classList.add('hidden'),2200)};
     function today(){return new Intl.DateTimeFormat('zh-CN',{month:'long',day:'numeric',weekday:'long'}).format(new Date())}
     function saveSession(module,note='',score=null){const d=readStore();d.sessions.unshift({id:Date.now(),date:new Date().toISOString(),language:state.language,module,mode:state.mode,duration:MODES[state.mode][0],note,score});writeStore(d);toast('已保存到当前浏览器');updateStats()}
@@ -124,6 +125,9 @@
     var baseUpdateStats=updateStats;updateStats=function(){baseUpdateStats();var sessions=readStore().sessions;document.querySelector('#historyList').innerHTML=sessions.length?sessions.map(x=>`<article><div><strong>${DATA[x.language].label} · ${NAMES[x.module]}${x.score?` · ${x.score} 分`:''}</strong><small>${x.note||MODES[x.mode][1]}</small></div><time>${new Date(x.date).toLocaleString('zh-CN')} · ${x.duration} 分钟</time></article>`).join(''):'<div class="empty">完成第一次练习后，记录会保存在这里。</div>'};
     var baseSyncHeader=syncHeader;syncHeader=function(){baseSyncHeader();document.querySelector('#dateLabel').textContent=`${today()} · ${DATA[state.language].level}`;document.querySelector('#levelLabel').innerHTML=`${DATA[state.language].level}<br><span class="scene-caption">当前场景：${SCENES[state.scene]}</span>`};syncHeader();renderPractice();updateStats();
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <script src="app-v3.js"></script>
 </body>
 </html>
 
