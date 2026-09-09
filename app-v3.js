@@ -245,22 +245,37 @@
   function scoreWithVocabulary(text, required, target) {
     var clean = text.trim(); if (!clean) return { score: 0, tips: '先写出你的完整表达。', used: [] };
     var tokens = clean.split(/\s+/).filter(Boolean); var used = required.filter(function (word) { return includesTerm(clean, word[0]); });
-    var score = Math.min(35, Math.round(tokens.length / target * 35));
-    score += /[.!?。！？]$/.test(clean) ? 15 : 8;
-    score += /[A-Za-zÄÖÜäöüß]/.test(clean) ? 10 : 0;
-    score += Math.round(40 * used.length / required.length);
+    var lengthPoints = Math.min(35, Math.round(tokens.length / target * 35));
+    var sentencePoints = /[.!?。！？]$/.test(clean) ? 15 : 8;
+    var languagePoints = /[A-Za-zÄÖÜäöüß]/.test(clean) ? 10 : 0;
+    var vocabularyPoints = Math.round(40 * used.length / required.length);
+    var score = lengthPoints + sentencePoints + languagePoints + vocabularyPoints;
     var missed = required.filter(function (word) { return used.indexOf(word) < 0; }).map(function (word) { return word[0]; });
     var tips = [];
     if (missed.length) tips.push('再自然地加入：' + missed.join('、'));
     if (tokens.length < target) tips.push('补充一个具体的人、时间或原因');
+    if (!/[.!?。！？]$/.test(clean)) tips.push('用句号、问号或感叹号结束完整句子');
     if (!tips.length) tips.push('当日词汇使用完整，表达已经形成主动记忆');
-    return { score: Math.min(100, score), tips: tips.join('；'), used: used };
+    return {
+      score: Math.min(100, score), tips: tips.join('；'), used: used,
+      breakdown: [
+        ['内容长度', lengthPoints, 35, tokens.length + ' 个词，目标约 ' + target + ' 个词'],
+        ['句子完整', sentencePoints, 15, sentencePoints === 15 ? '有完整的句末标点' : '有内容，但缺少句末标点'],
+        ['目标语言', languagePoints, 10, languagePoints ? '检测到英语或德语文字' : '未检测到英语或德语文字'],
+        ['今日词汇', vocabularyPoints, 40, '使用 ' + used.length + ' / ' + required.length + ' 个指定词汇']
+      ]
+    };
+  }
+  function scoringRubricHtml(target, note) {
+    return '<div class="score-rubric"><strong>评分标准</strong><span>内容长度 35 分（目标约 ' + target + ' 词）</span><span>完整句子 15 分</span><span>目标语言 10 分</span><span>今日词汇 40 分</span><small>' + (note || '评分在浏览器本机按上述规则完成，不进行 AI 语法判断。') + '</small></div>';
   }
   function showVocabularyScore(root, text, required, target) {
     var result = scoreWithVocabulary(text, required, target); var box = root.querySelector('.score-result');
-    box.classList.remove('hidden'); box.innerHTML = '<strong>' + result.score + '</strong> / 100<br><span>' + result.tips + '</span>';
+    box.classList.remove('hidden');
+    if (!text.trim()) { box.innerHTML = '<strong>尚未评分</strong><br><span>' + result.tips + '</span>'; return result; }
+    box.innerHTML = '<div class="score-heading"><strong>' + result.score + '</strong><span>/ 100 · 本机规则评分</span></div><div class="score-breakdown">' + result.breakdown.map(function (part) { return '<div><b>' + part[0] + '</b><span>' + part[1] + ' / ' + part[2] + '</span><small>' + escapeHtml(part[3]) + '</small></div>'; }).join('') + '</div><p class="score-reason"><b>改进建议：</b>' + escapeHtml(result.tips) + '</p>';
     root.querySelectorAll('.vocab-chip').forEach(function (chip) { chip.classList.toggle('used', includesTerm(text, chip.dataset.term)); });
-    return result.score;
+    return result;
   }
 
   function renderWords(root, plan, words) {
@@ -275,25 +290,25 @@
   function listeningMatchScore(heard, source) {
     var clean = function (value) { return value.toLowerCase().replace(/[^a-zäöüß0-9\s]/g, ' ').split(/\s+/).filter(Boolean); };
     var target = clean(source); var input = clean(heard);
-    if (!input.length) return 0;
+    if (!input.length) return { score: 0, hits: 0, total: target.length };
     var hits = target.filter(function (word) { return input.indexOf(word) >= 0; }).length;
-    return Math.min(100, Math.round(hits / Math.max(1, target.length) * 100));
+    return { score: Math.min(100, Math.round(hits / Math.max(1, target.length) * 100)), hits: hits, total: target.length };
   }
   function renderListening(root, plan, words) {
     var goal = Math.min(modeConfig().listening, words.length);
     var position = plan.listeningPos || 0;
     if (position >= goal) { finishStage(plan, 'listening'); return; }
     var sentence = words[position][3]; var checked = false;
-    root.innerHTML = '<article class="practice-card listening-card"><div class="card-top"><span>盲听跟读 ' + (position + 1) + ' / ' + goal + '</span><span>' + SCENES[plan.scene] + ' · ' + DATA[state.language].label + '</span></div><div class="listening-body"><span class="eyebrow" style="color:var(--muted)">LISTEN FIRST</span><h3>先听句子，再写下你听到的内容</h3><p class="hint">可以反复播放。核对原文后，再大声跟读一遍。</p><button class="listen-play" id="playListening">▶ <span>播放句子</span></button><textarea class="response-box" id="listeningInput" placeholder="输入你听到的句子……"></textarea><div class="action-row"><button class="btn" id="showListeningText">显示原文</button><button class="btn primary" id="checkListening">核对并评分</button></div><div class="task-box hidden" id="listeningText"><small>原文</small><strong>' + escapeHtml(sentence) + '</strong></div><div class="score-result hidden" id="listeningResult"></div></div></article>';
+    root.innerHTML = '<article class="practice-card listening-card"><div class="card-top"><span>盲听跟读 ' + (position + 1) + ' / ' + goal + '</span><span>' + SCENES[plan.scene] + ' · ' + DATA[state.language].label + '</span></div><div class="listening-body"><span class="eyebrow" style="color:var(--muted)">LISTEN FIRST</span><h3>先听句子，再写下你听到的内容</h3><p class="hint">可以反复播放。核对原文后，再大声跟读一遍。</p><div class="score-rubric listening-rubric"><strong>评分标准</strong><span>按照你写对的原文词汇比例计分，满分 100 分。</span><small>忽略大小写和标点，不进行 AI 发音判断。</small></div><button class="listen-play" id="playListening">▶ <span>播放句子</span></button><textarea class="response-box" id="listeningInput" placeholder="输入你听到的句子……"></textarea><div class="action-row"><button class="btn" id="showListeningText">显示原文</button><button class="btn primary" id="checkListening">核对并评分</button></div><div class="task-box hidden" id="listeningText"><small>原文</small><strong>' + escapeHtml(sentence) + '</strong></div><div class="score-result hidden" id="listeningResult"></div></div></article>';
     var input = root.querySelector('#listeningInput'); var transcript = root.querySelector('#listeningText'); var result = root.querySelector('#listeningResult'); var next = root.querySelector('#checkListening');
     root.querySelector('#playListening').onclick = function () { speak(sentence); };
     root.querySelector('#showListeningText').onclick = function () { transcript.classList.remove('hidden'); };
     next.onclick = function () {
       if (!checked) {
         if (!input.value.trim()) { result.classList.remove('hidden'); result.textContent = '先输入你听到的内容，再进行核对。'; return; }
-        var score = listeningMatchScore(input.value, sentence); checked = true; transcript.classList.remove('hidden'); result.classList.remove('hidden');
-        result.innerHTML = '<strong>' + score + '</strong> / 100<br><span>' + (score >= 80 ? '听辨准确，跟读一次后继续。' : score >= 50 ? '抓住了主要内容，对照原文再听一次。' : '先对照原文分段跟读，再完整听一次。') + '</span>';
-        plan.listeningScores[position] = score; next.textContent = position + 1 >= goal ? '完成听力练习' : '继续下一句'; return;
+        var match = listeningMatchScore(input.value, sentence); var score = match.score; checked = true; transcript.classList.remove('hidden'); result.classList.remove('hidden');
+        result.innerHTML = '<div class="score-heading"><strong>' + score + '</strong><span>/ 100 · 听辨匹配</span></div><p class="score-reason">写对了原文中的 ' + match.hits + ' / ' + match.total + ' 个词。' + (score >= 80 ? '听辨准确，跟读一次后继续。' : score >= 50 ? '抓住了主要内容，对照原文再听一次。' : '先对照原文分段跟读，再完整听一次。') + '</p>';
+        plan.listeningScores[position] = score; next.textContent = position + 1 >= goal ? '确认并完成听力' : '确认并继续下一句'; return;
       }
       plan.listeningPos = position + 1; savePlan(plan); state.revealed = false;
       if (plan.listeningPos >= goal) {
@@ -306,11 +321,13 @@
     var content = SCENE_CONTENT[state.language][plan.scene]; var round = plan.patternStep || 0; var goal = modeConfig().patterns;
     if (round >= goal) { finishStage(plan, 'patterns'); return; }
     var pattern = content.patterns[round % content.patterns.length]; var required = round === 0 ? [words[0], words[1]] : [words[2], words[3]];
-    root.innerHTML = '<article class="practice-card"><div class="card-top"><span>主动造句 ' + (round + 1) + ' / ' + goal + '</span><span>调用刚学过的词</span></div><div class="pattern-body"><span class="eyebrow" style="color:var(--muted)">RETRIEVE & USE</span><h3>把今天的词放进真实表达</h3><p class="hint">' + pattern[3] + ' 不需要照抄或只填空，请写一个与你有关的完整表达。</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + ' · ' + w[2] + '</span>'; }).join('') + '</div><textarea class="response-box" id="patternInput" placeholder="写 1–3 个完整句子，并自然使用上面的当日单词……"></textarea><div class="action-row"><button class="btn" id="patternHelp">查看句型支架</button><button class="btn primary" id="scorePattern">评分并继续</button></div><div class="task-box hidden" id="patternSample"><small>句型支架</small><strong style="display:block;margin-top:6px">' + pattern[0] + '</strong><p>参考表达：' + pattern[2] + '</p></div><div class="score-result hidden"></div></div></article>';
-    var input = root.querySelector('#patternInput'); root.querySelector('#patternHelp').onclick = function () { root.querySelector('#patternSample').classList.toggle('hidden'); };
-    root.querySelector('#scorePattern').onclick = function () {
-      var score = showVocabularyScore(root, input.value, required, 9); if (!input.value.trim()) return;
-      saveSession('patterns', '当日词汇造句：' + input.value, score); plan.patternStep = round + 1;
+    root.innerHTML = '<article class="practice-card"><div class="card-top"><span>主动造句 ' + (round + 1) + ' / ' + goal + '</span><span>调用刚学过的词</span></div><div class="pattern-body"><span class="eyebrow" style="color:var(--muted)">RETRIEVE & USE</span><h3>把今天的词放进真实表达</h3><p class="hint">' + pattern[3] + ' 不需要照抄或只填空，请写一个与你有关的完整表达。</p>' + scoringRubricHtml(9) + '<div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + ' · ' + w[2] + '</span>'; }).join('') + '</div><textarea class="response-box" id="patternInput" placeholder="写 1–3 个完整句子，并自然使用上面的当日单词……"></textarea><div class="action-row"><button class="btn" id="patternHelp">查看句型支架</button><button class="btn primary" id="scorePattern">查看评分</button></div><div class="task-box hidden" id="patternSample"><small>句型支架</small><strong style="display:block;margin-top:6px">' + pattern[0] + '</strong><p>参考表达：' + pattern[2] + '</p></div><div class="score-result hidden"></div></div></article>';
+    var input = root.querySelector('#patternInput'); var scoreButton = root.querySelector('#scorePattern'); var scoredResult = null;
+    root.querySelector('#patternHelp').onclick = function () { root.querySelector('#patternSample').classList.toggle('hidden'); };
+    input.oninput = function () { if (scoredResult) { scoredResult = null; root.querySelector('.score-result').classList.add('hidden'); scoreButton.textContent = '查看评分'; } };
+    scoreButton.onclick = function () {
+      if (!scoredResult) { scoredResult = showVocabularyScore(root, input.value, required, 9); if (!input.value.trim()) { scoredResult = null; return; } scoreButton.textContent = '确认评分并继续'; return; }
+      saveSession('patterns', '当日词汇造句：' + input.value, scoredResult.score); plan.patternStep = round + 1;
       state.revealed = false;
       if (plan.patternStep >= goal) finishStage(plan, 'patterns'); else { savePlan(plan); setDailyState(); renderDaily(); }
     };
@@ -319,10 +336,11 @@
     var config = modeConfig(); var item = SCENE_CONTENT[state.language][plan.scene].reading;
     var required = [words[0], words[Math.max(0, config.words - 1)]].filter(function (word, index, list) { return list.indexOf(word) === index; });
     var outputHint = state.mode === 'normal' ? item[3] : state.mode === 'busy' ? '用 2–3 句概括短文，并使用一个当日词汇。' : '写 1 个包含当日词汇的完整句子。';
-    root.innerHTML = '<article class="practice-card reading"><section class="article"><span class="eyebrow">' + SCENES[plan.scene] + ' · SHORT READING</span><h3>' + item[0] + '</h3><p>' + item[1] + '</p><button class="reveal" id="translate">查看中文</button><div id="translation" class="translation hidden">' + item[2] + '</div></section><section class="writing"><span class="eyebrow" style="color:var(--muted)">YOUR OUTPUT</span><h4>' + outputHint + '</h4><p class="hint">尝试再次使用：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea id="draft" placeholder="在这里写下你的回答……"></textarea><div class="action-row"><small id="count">0 字符</small><button class="btn primary" id="scoreWriting">评分并完成读写</button></div><div class="score-result hidden"></div></section></article>';
-    var input = root.querySelector('#draft'); input.oninput = function () { root.querySelector('#count').textContent = input.value.length + ' 字符'; };
+    root.innerHTML = '<article class="practice-card reading"><section class="article"><span class="eyebrow">' + SCENES[plan.scene] + ' · SHORT READING</span><h3>' + item[0] + '</h3><p>' + item[1] + '</p><button class="reveal" id="translate">查看中文</button><div id="translation" class="translation hidden">' + item[2] + '</div></section><section class="writing"><span class="eyebrow" style="color:var(--muted)">YOUR OUTPUT</span><h4>' + outputHint + '</h4>' + scoringRubricHtml(config.readingTarget) + '<p class="hint">尝试再次使用：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea id="draft" placeholder="在这里写下你的回答……"></textarea><div class="action-row"><small id="count">0 字符</small><button class="btn primary" id="scoreWriting">查看评分</button></div><div class="score-result hidden"></div></section></article>';
+    var input = root.querySelector('#draft'); var scoreButton = root.querySelector('#scoreWriting'); var scoredResult = null;
+    input.oninput = function () { root.querySelector('#count').textContent = input.value.length + ' 字符'; if (scoredResult) { scoredResult = null; root.querySelector('.score-result').classList.add('hidden'); scoreButton.textContent = '查看评分'; } };
     root.querySelector('#translate').onclick = function () { root.querySelector('#translation').classList.toggle('hidden'); };
-    root.querySelector('#scoreWriting').onclick = function () { var score = showVocabularyScore(root, input.value, required, config.readingTarget); if (!input.value.trim()) return; saveSessionOnce('reading', input.value, score); finishStage(plan, 'reading'); };
+    scoreButton.onclick = function () { if (!scoredResult) { scoredResult = showVocabularyScore(root, input.value, required, config.readingTarget); if (!input.value.trim()) { scoredResult = null; return; } scoreButton.textContent = '确认评分并完成'; return; } saveSessionOnce('reading', input.value, scoredResult.score); finishStage(plan, 'reading'); };
   }
   function resetSpeakingTimer() {
     if (state.timerId) clearInterval(state.timerId);
@@ -339,9 +357,11 @@
   function renderSpeaking(root, plan, words) {
     var config = modeConfig(); var item = SCENE_CONTENT[state.language][plan.scene].speaking;
     var required = [words[0], words[Math.max(0, config.words - 1)]].filter(function (word, index, list) { return list.indexOf(word) === index; });
-    root.innerHTML = '<article class="practice-card speaking"><section class="speaking-body"><span class="eyebrow" style="color:var(--muted)">' + SCENES[plan.scene] + ' · ' + config.speakingSeconds + '-SECOND SPEAKING</span><h3>' + item[0] + '</h3><ul>' + item[1].slice(0, state.mode === 'normal' ? 3 : state.mode === 'busy' ? 2 : 1).map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul><p class="hint">尽量说出今天的词：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea class="response-box" id="speechText" placeholder="可输入或使用语音转写……"></textarea><div class="action-row"><button class="btn" id="dictate">🎙 语音转写</button><button class="btn primary" id="scoreSpeaking">完成并评分</button><span class="mic-status" id="micStatus"></span></div><div class="score-result hidden"></div></section><aside class="timer ' + (state.timerId ? 'running' : '') + '"><strong id="timerValue">' + state.timer + '</strong><small>秒</small><div class="timer-controls"><button id="timerToggle">' + (state.timerId ? 'Ⅱ' : '▶') + '</button><button id="timerReset">↺</button></div></aside></article>';
-    var input = root.querySelector('#speechText'); root.querySelector('#timerToggle').onclick = toggleSpeakingTimer; root.querySelector('#timerReset').onclick = function () { resetSpeakingTimer(); renderDaily(); }; root.querySelector('#dictate').onclick = function () { startDictation(root); };
-    root.querySelector('#scoreSpeaking').onclick = function () { var score = showVocabularyScore(root, input.value, required, config.speakingTarget); if (!input.value.trim()) return; saveSessionOnce('speaking', input.value, score); finishStage(plan, 'speaking'); if (plan.completed.length === stages.length) toast('今天五项练习已全部完成'); };
+    root.innerHTML = '<article class="practice-card speaking"><section class="speaking-body"><span class="eyebrow" style="color:var(--muted)">' + SCENES[plan.scene] + ' · ' + config.speakingSeconds + '-SECOND SPEAKING</span><h3>' + item[0] + '</h3><ul>' + item[1].slice(0, state.mode === 'normal' ? 3 : state.mode === 'busy' ? 2 : 1).map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul>' + scoringRubricHtml(config.speakingTarget, '口语按语音转写后的文字进行本机规则评分，不判断发音准确度。') + '<p class="hint">尽量说出今天的词：</p><div class="vocab-chips">' + required.map(function (w) { return '<span class="vocab-chip" data-term="' + w[0].replace(/"/g, '&quot;') + '">' + w[0] + '</span>'; }).join('') + '</div><textarea class="response-box" id="speechText" placeholder="可输入或使用语音转写……"></textarea><div class="action-row"><button class="btn" id="dictate">🎙 语音转写</button><button class="btn primary" id="scoreSpeaking">查看评分</button><span class="mic-status" id="micStatus"></span></div><div class="score-result hidden"></div></section><aside class="timer ' + (state.timerId ? 'running' : '') + '"><strong id="timerValue">' + state.timer + '</strong><small>秒</small><div class="timer-controls"><button id="timerToggle">' + (state.timerId ? 'Ⅱ' : '▶') + '</button><button id="timerReset">↺</button></div></aside></article>';
+    var input = root.querySelector('#speechText'); var scoreButton = root.querySelector('#scoreSpeaking'); var scoredResult = null;
+    input.oninput = function () { if (scoredResult) { scoredResult = null; root.querySelector('.score-result').classList.add('hidden'); scoreButton.textContent = '查看评分'; } };
+    root.querySelector('#timerToggle').onclick = toggleSpeakingTimer; root.querySelector('#timerReset').onclick = function () { resetSpeakingTimer(); renderDaily(); }; root.querySelector('#dictate').onclick = function () { startDictation(root); };
+    scoreButton.onclick = function () { if (!scoredResult) { scoredResult = showVocabularyScore(root, input.value, required, config.speakingTarget); if (!input.value.trim()) { scoredResult = null; return; } scoreButton.textContent = '确认评分并完成'; return; } saveSessionOnce('speaking', input.value, scoredResult.score); finishStage(plan, 'speaking'); if (plan.completed.length === stages.length) toast('今天五项练习已全部完成'); };
   }
   function renderModuleComplete(root, plan) {
     var remaining = stages.filter(function (item) { return plan.completed.indexOf(item) < 0; });
