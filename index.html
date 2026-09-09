@@ -8,7 +8,7 @@
   <meta http-equiv="Expires" content="0">
   <meta name="description" content="适配繁忙工作节奏的英语与德语学习、复习与进度追踪工具">
   <title>语伴｜英语与德语学习台</title>
-  <link rel="stylesheet" href="upgrade.css?v=20260908-3">
+  <link rel="stylesheet" href="upgrade.css?v=20260909-1">
   <style>
     :root{--ink:#142431;--paper:#f4f5ef;--card:#fff;--line:#d9ded8;--muted:#6e7a82;--lime:#d8ff59;--blue:#7183ff;--violet:#ead7ff;--orange:#ffdbc1;--shadow:0 24px 70px #23364212}
     *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--paper);color:var(--ink);font-family:Inter,"Microsoft YaHei",system-ui,sans-serif}button,select,textarea{font:inherit}button{color:inherit}.hidden{display:none!important}
@@ -129,8 +129,8 @@
     var baseSyncHeader=syncHeader;syncHeader=function(){baseSyncHeader();document.querySelector('#dateLabel').textContent=`${today()} · ${DATA[state.language].level}`;document.querySelector('#levelLabel').innerHTML=`${DATA[state.language].level}<br><span class="scene-caption">当前场景：${SCENES[state.scene]}</span>`};syncHeader();renderPractice();updateStats();
   </script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="supabase-config.js?v=20260908-3"></script>
-  <script src="app-v3.js?v=20260908-3"></script>
+  <script src="supabase-config.js?v=20260909-1"></script>
+  <script src="app-v3.js?v=20260909-1"></script>
 </body>
 </html>
 
